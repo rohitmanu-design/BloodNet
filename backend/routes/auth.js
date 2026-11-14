@@ -55,6 +55,8 @@ const baseRegisterValidation = [
   body('location.lng').optional().isFloat({ min: -180, max: 180 }).withMessage('Invalid longitude'),
   body('location.address').optional().trim(),
   body('location.city').optional().trim(),
+  body('address').optional().trim(),
+  body('city').optional().trim(),
 ];
 
 const recipientValidation = [

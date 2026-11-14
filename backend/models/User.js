@@ -72,6 +72,16 @@ const userSchema = new mongoose.Schema({
       trim: true
     }
   },
+  address: {
+    type: String,
+    default: '',
+    trim: true
+  },
+  city: {
+    type: String,
+    default: '',
+    trim: true
+  },
   donorHealthDetails: {
     weight: {
       type: Number,

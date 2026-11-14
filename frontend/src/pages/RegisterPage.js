@@ -227,6 +227,8 @@ const RegisterPage = () => {
       password: formData.password,
       confirmPassword: formData.confirmPassword,
       termsConsent: formData.termsConsent,
+      address: formData.address.trim(),
+      city: formData.city.trim(),
       location: {
         lat: formData.location?.lat || 0,
         lng: formData.location?.lng || 0,
@@ -635,11 +637,11 @@ const RegisterPage = () => {
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
-                      <label htmlFor="city" className="block text-sm font-semibold text-gray-700 mb-1">
+                      <label htmlFor="hospitalCity" className="block text-sm font-semibold text-gray-700 mb-1">
                         City *
                       </label>
                       <input
-                        id="city"
+                        id="hospitalCity"
                         name="city"
                         type="text"
                         value={formData.city}
@@ -653,11 +655,11 @@ const RegisterPage = () => {
                     </div>
 
                     <div>
-                      <label htmlFor="address" className="block text-sm font-semibold text-gray-700 mb-1">
+                      <label htmlFor="hospitalAddress" className="block text-sm font-semibold text-gray-700 mb-1">
                         Hospital Address
                       </label>
                       <input
-                        id="address"
+                        id="hospitalAddress"
                         name="address"
                         type="text"
                         value={formData.address}
@@ -681,30 +683,64 @@ const RegisterPage = () => {
                 </div>
               )}
 
-              {/* Recipient & Donor Blood Group */}
+              {/* Recipient & Donor Blood Group and Address Details */}
               {selectedRole !== 'hospital' && (
-                <div>
-                  <label htmlFor="bloodGroup" className="block text-sm font-semibold text-gray-700 mb-1">
-                    Blood Group *
-                  </label>
-                  <select
-                    id="bloodGroup"
-                    name="bloodGroup"
-                    required
-                    value={formData.bloodGroup}
-                    onChange={handleChange}
-                    className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-red-500 focus:border-transparent bg-white ${
-                      errors.bloodGroup ? 'border-red-500 bg-red-50/30' : 'border-gray-300'
-                    }`}
-                  >
-                    <option value="">Select your blood group</option>
-                    {BLOOD_GROUPS.map((bg) => (
-                      <option key={bg} value={bg}>
-                        {bg}
-                      </option>
-                    ))}
-                  </select>
-                  {errors.bloodGroup && <p className="mt-1 text-xs text-red-600">{errors.bloodGroup}</p>}
+                <div className="space-y-4 pt-2 border-t border-gray-100">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label htmlFor="bloodGroup" className="block text-sm font-semibold text-gray-700 mb-1">
+                        Blood Group *
+                      </label>
+                      <select
+                        id="bloodGroup"
+                        name="bloodGroup"
+                        required
+                        value={formData.bloodGroup}
+                        onChange={handleChange}
+                        className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-red-500 focus:border-transparent bg-white ${
+                          errors.bloodGroup ? 'border-red-500 bg-red-50/30' : 'border-gray-300'
+                        }`}
+                      >
+                        <option value="">Select your blood group</option>
+                        {BLOOD_GROUPS.map((bg) => (
+                          <option key={bg} value={bg}>
+                            {bg}
+                          </option>
+                        ))}
+                      </select>
+                      {errors.bloodGroup && <p className="mt-1 text-xs text-red-600">{errors.bloodGroup}</p>}
+                    </div>
+
+                    <div>
+                      <label htmlFor="userCity" className="block text-sm font-semibold text-gray-700 mb-1">
+                        City / District
+                      </label>
+                      <input
+                        id="userCity"
+                        name="city"
+                        type="text"
+                        value={formData.city}
+                        onChange={handleChange}
+                        placeholder="e.g. Mumbai or New York"
+                        className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label htmlFor="userAddress" className="block text-sm font-semibold text-gray-700 mb-1">
+                      Residential / Street Address
+                    </label>
+                    <input
+                      id="userAddress"
+                      name="address"
+                      type="text"
+                      value={formData.address}
+                      onChange={handleChange}
+                      placeholder="e.g. Flat/House No., Street, Colony, or Landmark"
+                      className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                    />
+                  </div>
                 </div>
               )}
 

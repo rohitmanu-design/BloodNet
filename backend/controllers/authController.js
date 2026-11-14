@@ -78,16 +78,21 @@ const register = async (req, res) => {
     const cleanEmergency = (emergencyContact || contactNumber || phone || '').trim();
 
     // Prepare user record
+    const resolvedAddress = (address || location?.address || '').trim();
+    const resolvedCity = (city || location?.city || '').trim();
+
     const userData = {
       role,
       email: cleanEmail,
       phone: cleanPhone,
       termsConsent: termsConsent !== false,
+      address: resolvedAddress,
+      city: resolvedCity,
       location: {
         lat: Number(location?.lat) || 0,
         lng: Number(location?.lng) || 0,
-        address: (address || location?.address || '').trim(),
-        city: (city || location?.city || '').trim()
+        address: resolvedAddress,
+        city: resolvedCity
       }
     };
 
