@@ -18,9 +18,11 @@ import {
 import { HeartIcon } from '@heroicons/react/24/outline';
 import Button from '../components/ui/Button';
 import Card from '../components/ui/Card';
+import ContactVerificationSection from '../components/ContactVerificationSection';
 
 const RegisterPage = () => {
   const [selectedRole, setSelectedRole] = useState(null); // 'recipient', 'donor', 'hospital'
+  const [registeredUser, setRegisteredUser] = useState(null);
 
   // Configurable donor rules (fetched from server or defaulted)
   const [donorRules, setDonorRules] = useState(DEFAULT_DONOR_RULES);
@@ -261,12 +263,7 @@ const RegisterPage = () => {
 
     try {
       const response = await register(payload);
-      const userRole = response.user?.role || selectedRole;
-      if (userRole === 'admin') {
-        navigate('/admin', { replace: true });
-      } else {
-        navigate(`/dashboard/${userRole}`, { replace: true });
-      }
+      setRegisteredUser(response.user || payload);
     } catch (err) {
       const msg = err.response?.data?.message || err.message || 'Registration failed. Please check your inputs.';
       setServerError(msg);
@@ -300,17 +297,26 @@ const RegisterPage = () => {
             <HeartSolidIcon className="h-14 w-14 text-red-500" />
           </div>
           <h2 className="text-3xl font-extrabold text-gray-900 tracking-tight sm:text-4xl">
-            Join BloodNet+
+            {registeredUser ? 'Verify Your Account' : 'Join BloodNet+'}
           </h2>
           <p className="mt-2 text-sm text-gray-600">
-            {selectedRole
+            {registeredUser
+              ? 'Complete contact verification to finalize your registration'
+              : selectedRole
               ? `Registering as a ${selectedRole === 'recipient' ? 'Blood Recipient' : selectedRole === 'donor' ? 'Blood Donor' : 'Hospital'}`
               : 'Choose your role to get started saving lives'}
           </p>
         </div>
 
-        {/* STEP 1: ROLE SELECTION */}
-        {!selectedRole ? (
+        {/* STEP 3: CONTACT VERIFICATION (AFTER REGISTRATION) */}
+        {registeredUser ? (
+          <ContactVerificationSection
+            initialEmail={registeredUser.email}
+            initialPhone={registeredUser.phoneFormatted || registeredUser.phone}
+            userRole={registeredUser.role || selectedRole}
+          />
+        ) : !selectedRole ? (
+          /* STEP 1: ROLE SELECTION */
           <Card className="p-8 shadow-2xl bg-white/95 backdrop-blur-sm border border-gray-100">
             <h3 className="text-xl font-bold text-gray-900 mb-6 text-center">
               Select Your Account Type

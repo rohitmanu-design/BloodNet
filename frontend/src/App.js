@@ -9,6 +9,7 @@ import LandingPage from './pages/LandingPage';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
+import VerificationPage from './pages/VerificationPage';
 import ProfilePage from './pages/ProfilePage';
 import RecipientDashboard from './pages/RecipientDashboard';
 import RevolutionaryDonorDashboard from './pages/RevolutionaryDonorDashboard';
@@ -33,6 +34,8 @@ function AppRoutes() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
+        <Route path="/verify" element={<VerificationPage />} />
+        <Route path="/verify-contacts" element={<VerificationPage />} />
         <Route
           path="/profile"
           element={

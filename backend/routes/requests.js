@@ -1,6 +1,6 @@
 const express = require('express');
 const { body } = require('express-validator');
-const { auth, authorize } = require('../middleware/auth');
+const { auth, authorize, requireVerifiedContact } = require('../middleware/auth');
 const {
   createRequest,
   getMyRequests,
@@ -27,14 +27,14 @@ const respondValidation = [
   body('message').optional().isLength({ max: 500 }).withMessage('Message too long'),
 ];
 
-router.post('/', auth, authorize('recipient', 'hospital'), createRequestValidation, createRequest);
-router.post('/create', auth, authorize('recipient', 'hospital'), createRequestValidation, createRequest);
+router.post('/', auth, requireVerifiedContact, authorize('recipient', 'hospital'), createRequestValidation, createRequest);
+router.post('/create', auth, requireVerifiedContact, authorize('recipient', 'hospital'), createRequestValidation, createRequest);
 
 router.get('/my', auth, authorize('recipient'), getMyRequests);
 
 router.get('/nearby', auth, authorize('donor', 'hospital'), getNearbyRequests);
 
-router.put('/:requestId/respond', auth, authorize('donor', 'hospital'), respondValidation, respondToRequest);
+router.put('/:requestId/respond', auth, requireVerifiedContact, authorize('donor', 'hospital'), respondValidation, respondToRequest);
 
 router.get('/:requestId', auth, getRequestDetails);
 

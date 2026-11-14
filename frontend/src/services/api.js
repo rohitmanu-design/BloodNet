@@ -30,7 +30,10 @@ api.interceptors.response.use(
       requestUrl.includes('/auth/register') ||
       requestUrl.includes('/auth/forgot-password') ||
       requestUrl.includes('/auth/reset-password') ||
-      requestUrl.includes('/auth/donor-rules');
+      requestUrl.includes('/auth/donor-rules') ||
+      requestUrl.includes('/auth/send-verification-otp') ||
+      requestUrl.includes('/auth/verify-otp') ||
+      requestUrl.includes('/auth/verification-status');
 
     if (error.response?.status === 401 && !isAuthRoute) {
       localStorage.removeItem('token');
@@ -48,6 +51,9 @@ export const authAPI = {
   forgotPassword: (data) => api.post('/auth/forgot-password', data),
   resetPassword: (data) => api.post('/auth/reset-password', data),
   getDonorRules: () => api.get('/auth/donor-rules'),
+  sendVerificationOtp: (data) => api.post('/auth/send-verification-otp', data),
+  verifyOtp: (data) => api.post('/auth/verify-otp', data),
+  getVerificationStatus: () => api.get('/auth/verification-status'),
   getProfile: () => api.get('/auth/profile'),
 };
 

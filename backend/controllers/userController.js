@@ -2,6 +2,8 @@ const { validationResult } = require('express-validator');
 const User = require('../models/User');
 const Request = require('../models/Request');
 const Notification = require('../models/Notification');
+const OtpVerification = require('../models/OtpVerification');
+const { normalizePhoneNumber } = require('../utils/phoneUtils');
 
 const updateProfile = async (req, res) => {
   try {
@@ -16,7 +18,7 @@ const updateProfile = async (req, res) => {
       return res.status(400).json({ message: 'No data provided' });
     }
 
-    const allowedFields = ['name', 'hospitalName', 'phone', 'contactNumber', 'location', 'address', 'age', 'bloodGroup'];
+    const allowedFields = ['name', 'hospitalName', 'phone', 'contactNumber', 'location', 'address', 'age', 'bloodGroup', 'email'];
     const updates = {};
 
     allowedFields.forEach(field => {
@@ -24,6 +26,34 @@ const updateProfile = async (req, res) => {
         updates[field] = body[field];
       }
     });
+
+    const currentUser = await User.findById(req.user.id);
+    if (!currentUser) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    // Invalidate phone verification if phone number changes
+    if (updates.phone) {
+      const normalizedNewPhone = normalizePhoneNumber(updates.phone);
+      const normalizedCurrentPhone = normalizePhoneNumber(currentUser.phone || '');
+      if (normalizedNewPhone && normalizedNewPhone !== normalizedCurrentPhone) {
+        updates.phoneFormatted = normalizedNewPhone;
+        updates.phoneVerified = false;
+        updates.verified = false;
+        await OtpVerification.deleteMany({ userId: req.user.id, contactType: 'phone' });
+      }
+    }
+
+    // Invalidate email verification if email changes
+    if (updates.email) {
+      const normalizedNewEmail = updates.email.trim().toLowerCase();
+      if (normalizedNewEmail !== (currentUser.email || '').toLowerCase()) {
+        updates.email = normalizedNewEmail;
+        updates.emailVerified = false;
+        updates.verified = false;
+        await OtpVerification.deleteMany({ userId: req.user.id, contactType: 'email' });
+      }
+    }
 
     // Handle donor health details
     if (req.user.role === 'donor') {

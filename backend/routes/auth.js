@@ -8,6 +8,9 @@ const {
   forgotPassword,
   resetPassword,
   getDonorRules,
+  sendVerificationOtp,
+  verifyOtp,
+  getVerificationStatus,
   getProfile
 } = require('../controllers/authController');
 const DONOR_SCREENING_RULES = require('../config/donorRules');
@@ -35,6 +38,22 @@ const passwordResetLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 6,
   message: { message: 'Too many password reset requests. Please wait a few minutes before trying again.' },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+const otpSendLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 12,
+  message: { message: 'Too many verification code requests. Please wait before requesting again.' },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+const otpVerifyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  message: { message: 'Too many verification attempts. Please wait a few minutes before trying again.' },
   standardHeaders: true,
   legacyHeaders: false
 });
@@ -170,6 +189,29 @@ router.post('/reset-password', passwordResetLimiter, [
 }, resetPassword);
 
 router.get('/donor-rules', getDonorRules);
+
+router.post('/send-verification-otp', auth, otpSendLimiter, [
+  body('contactType').isIn(['email', 'phone']).withMessage('contactType must be email or phone')
+], (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ message: errors.array()[0]?.msg || 'Validation failed' });
+  }
+  next();
+}, sendVerificationOtp);
+
+router.post('/verify-otp', auth, otpVerifyLimiter, [
+  body('contactType').isIn(['email', 'phone']).withMessage('contactType must be email or phone'),
+  body('otp').isLength({ min: 4, max: 4 }).isNumeric().withMessage('OTP must be a 4-digit number')
+], (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ message: errors.array()[0]?.msg || 'Validation failed' });
+  }
+  next();
+}, verifyOtp);
+
+router.get('/verification-status', auth, getVerificationStatus);
 
 router.get('/profile', auth, getProfile);
 

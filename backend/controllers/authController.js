@@ -5,8 +5,11 @@ const bcrypt = require('bcryptjs');
 const User = require('../models/User');
 const Notification = require('../models/Notification');
 const AuditLog = require('../models/AuditLog');
+const OtpVerification = require('../models/OtpVerification');
 const DONOR_SCREENING_RULES = require('../config/donorRules');
-const { sendPasswordResetEmail } = require('../config/emailService');
+const { sendPasswordResetEmail, sendVerificationEmail, getEmailConfigStatus } = require('../config/emailService');
+const { sendVerificationSms, getSmsConfigStatus } = require('../config/smsService');
+const { normalizePhoneNumber, maskPhoneNumber, maskEmail } = require('../utils/phoneUtils');
 
 const getJwtSecret = () => {
   if (!process.env.JWT_SECRET) {
@@ -76,6 +79,7 @@ const register = async (req, res) => {
     // Clean phone numbers
     const cleanPhone = (phone || contactNumber || '').trim();
     const cleanEmergency = (emergencyContact || contactNumber || phone || '').trim();
+    const formattedPhone = normalizePhoneNumber(cleanPhone);
 
     // Prepare user record
     const resolvedAddress = (address || location?.address || '').trim();
@@ -85,6 +89,10 @@ const register = async (req, res) => {
       role,
       email: cleanEmail,
       phone: cleanPhone,
+      phoneFormatted: formattedPhone,
+      emailVerified: false,
+      phoneVerified: false,
+      verified: false,
       termsConsent: termsConsent !== false,
       address: resolvedAddress,
       city: resolvedCity,
@@ -100,8 +108,8 @@ const register = async (req, res) => {
       userData.hospitalName = (hospitalName || '').trim();
       userData.contactNumber = cleanPhone;
       userData.emergencyContact = cleanEmergency;
-      userData.status = 'active';
-      userData.verified = true;
+      userData.status = 'pending';
+      userData.verified = false;
     } else {
       userData.firstName = (firstName || '').trim();
       userData.lastName = (lastName || '').trim();
@@ -188,13 +196,16 @@ const register = async (req, res) => {
         hospitalName: user.hospitalName,
         email: user.email,
         phone: user.phone,
+        phoneFormatted: user.phoneFormatted,
         contactNumber: user.contactNumber,
         emergencyContact: user.emergencyContact,
         bloodGroup: user.bloodGroup,
         location: user.location,
         isAvailable: user.isAvailable,
         status: user.status,
-        verified: user.verified
+        verified: user.verified,
+        emailVerified: user.emailVerified,
+        phoneVerified: user.phoneVerified
       }
     });
   } catch (error) {
@@ -298,6 +309,7 @@ const login = async (req, res) => {
         hospitalName: user.hospitalName,
         email: user.email,
         phone: user.phone,
+        phoneFormatted: user.phoneFormatted,
         contactNumber: user.contactNumber,
         emergencyContact: user.emergencyContact,
         bloodGroup: user.bloodGroup,
@@ -305,6 +317,8 @@ const login = async (req, res) => {
         isAvailable: user.isAvailable,
         status: user.status,
         verified: user.verified,
+        emailVerified: user.emailVerified,
+        phoneVerified: user.phoneVerified,
         lastDonation: user.lastDonation
       }
     });
@@ -454,6 +468,301 @@ const getDonorRules = (req, res) => {
   });
 };
 
+/**
+ * Send a separate 4-digit OTP code to email or phone
+ */
+const sendVerificationOtp = async (req, res) => {
+  try {
+    const { contactType } = req.body;
+    if (!['email', 'phone'].includes(contactType)) {
+      return res.status(400).json({ message: 'Invalid contact type. Must be email or phone.' });
+    }
+
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found.' });
+    }
+
+    let destination = '';
+    if (contactType === 'email') {
+      if (user.emailVerified) {
+        return res.status(400).json({ message: 'Email address is already verified.' });
+      }
+      destination = user.email.trim().toLowerCase();
+    } else {
+      if (user.phoneVerified) {
+        return res.status(400).json({ message: 'Phone number is already verified.' });
+      }
+      destination = user.phoneFormatted || normalizePhoneNumber(user.phone || user.contactNumber);
+      if (!destination) {
+        return res.status(400).json({ message: 'No phone number found on account to verify.' });
+      }
+    }
+
+    // Abuse prevention: Check resend frequency (minimum 60s cooldown)
+    const recentOtp = await OtpVerification.findOne({
+      userId: user._id,
+      contactType,
+      createdAt: { $gt: new Date(Date.now() - 60 * 1000) }
+    }).sort({ createdAt: -1 });
+
+    if (recentOtp) {
+      const remainingSeconds = Math.max(1, Math.ceil((60 * 1000 - (Date.now() - recentOtp.createdAt.getTime())) / 1000));
+      return res.status(429).json({
+        message: `Please wait ${remainingSeconds} seconds before requesting another code.`,
+        retryAfterSeconds: remainingSeconds
+      });
+    }
+
+    // Abuse prevention: Maximum 5 OTPs per hour per user and contactType
+    const hourlyCount = await OtpVerification.countDocuments({
+      userId: user._id,
+      contactType,
+      createdAt: { $gt: new Date(Date.now() - 60 * 60 * 1000) }
+    });
+
+    if (hourlyCount >= 5) {
+      return res.status(429).json({
+        message: 'Maximum verification attempts reached for this hour. Please try again later.'
+      });
+    }
+
+    // Invalidate existing active OTPs for this user & contactType
+    await OtpVerification.updateMany(
+      { userId: user._id, contactType, isUsed: false },
+      { isUsed: true }
+    );
+
+    // Generate cryptographically secure 4-digit code (1000 - 9999)
+    const rawOtp = crypto.randomInt(1000, 10000).toString();
+    const salt = crypto.randomBytes(16).toString('hex');
+    const otpHash = crypto.createHash('sha256').update(rawOtp + salt).digest('hex');
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
+
+    // Save record with TTL expiry
+    await OtpVerification.create({
+      userId: user._id,
+      contactType,
+      destination,
+      otpHash,
+      salt,
+      attempts: 0,
+      maxAttempts: 5,
+      isUsed: false,
+      expiresAt,
+      lastSentAt: new Date()
+    });
+
+    // Deliver via configured provider
+    if (contactType === 'email') {
+      const emailResult = await sendVerificationEmail({ toEmail: destination, otpCode: rawOtp });
+      if (!emailResult.configured) {
+        return res.status(503).json({
+          success: false,
+          deliveryStatus: 'unconfigured',
+          message: emailResult.error,
+          missingVariables: emailResult.missingVariables,
+          contactType: 'email',
+          destination: maskEmail(destination)
+        });
+      }
+      if (!emailResult.delivered) {
+        return res.status(502).json({
+          success: false,
+          deliveryStatus: 'failed',
+          message: emailResult.error || 'Failed to deliver email through provider.',
+          contactType: 'email',
+          destination: maskEmail(destination)
+        });
+      }
+      return res.json({
+        success: true,
+        deliveryStatus: 'sent',
+        contactType: 'email',
+        destination: maskEmail(destination),
+        message: `A 4-digit verification code has been sent to ${maskEmail(destination)}.`
+      });
+    } else {
+      const smsResult = await sendVerificationSms({ toPhone: destination, otpCode: rawOtp });
+      if (!smsResult.configured) {
+        return res.status(503).json({
+          success: false,
+          deliveryStatus: 'unconfigured',
+          message: smsResult.error,
+          missingVariables: smsResult.missingVariables,
+          contactType: 'phone',
+          destination: maskPhoneNumber(destination)
+        });
+      }
+      if (!smsResult.delivered) {
+        return res.status(502).json({
+          success: false,
+          deliveryStatus: 'failed',
+          message: smsResult.error || 'Failed to deliver SMS through provider.',
+          contactType: 'phone',
+          destination: maskPhoneNumber(destination)
+        });
+      }
+      return res.json({
+        success: true,
+        deliveryStatus: 'sent',
+        contactType: 'phone',
+        destination: maskPhoneNumber(destination),
+        message: `A 4-digit verification code has been sent to ${maskPhoneNumber(destination)}.`
+      });
+    }
+  } catch (error) {
+    console.error('sendVerificationOtp error:', error.message);
+    res.status(500).json({ message: 'Server error generating verification code. Please try again.' });
+  }
+};
+
+/**
+ * Verify a 4-digit OTP code for email or phone
+ */
+const verifyOtp = async (req, res) => {
+  try {
+    const { contactType, otp } = req.body;
+    if (!['email', 'phone'].includes(contactType)) {
+      return res.status(400).json({ message: 'Invalid contact type. Must be email or phone.' });
+    }
+
+    const cleanOtp = (otp || '').toString().trim();
+    if (!/^\d{4}$/.test(cleanOtp)) {
+      return res.status(400).json({ message: 'Verification code must be exactly 4 digits.' });
+    }
+
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found.' });
+    }
+
+    // Retrieve active OTP record
+    const record = await OtpVerification.findOne({
+      userId: user._id,
+      contactType,
+      isUsed: false,
+      expiresAt: { $gt: new Date() }
+    }).sort({ createdAt: -1 });
+
+    if (!record) {
+      return res.status(400).json({
+        message: 'Verification code has expired or is invalid. Please request a new code.'
+      });
+    }
+
+    // Check attempt limits
+    if (record.attempts >= record.maxAttempts) {
+      record.isUsed = true;
+      await record.save();
+      return res.status(429).json({
+        message: 'Too many incorrect attempts. This code has been invalidated. Please request a new code.'
+      });
+    }
+
+    // Constant-time comparison of SHA-256 hashes
+    const candidateHash = crypto.createHash('sha256').update(cleanOtp + record.salt).digest('hex');
+    const isMatch = crypto.timingSafeEqual(
+      Buffer.from(candidateHash, 'hex'),
+      Buffer.from(record.otpHash, 'hex')
+    );
+
+    if (!isMatch) {
+      record.attempts += 1;
+      if (record.attempts >= record.maxAttempts) {
+        record.isUsed = true;
+      }
+      await record.save();
+      const remaining = Math.max(0, record.maxAttempts - record.attempts);
+      return res.status(400).json({
+        message: remaining > 0
+          ? `Incorrect code. ${remaining} attempt(s) remaining.`
+          : 'Incorrect code. Maximum attempts reached. Code has been invalidated.',
+        remainingAttempts: remaining
+      });
+    }
+
+    // Code matched! Mark code as used immediately
+    record.isUsed = true;
+    await record.save();
+
+    // Mark contact verified on user
+    if (contactType === 'email') {
+      user.emailVerified = true;
+    } else {
+      user.phoneVerified = true;
+    }
+
+    // Both must be verified before account is fully verified
+    const isFullyVerified = Boolean(user.emailVerified && user.phoneVerified);
+    if (isFullyVerified) {
+      user.verified = true;
+    }
+    await user.save();
+
+    res.json({
+      success: true,
+      message: `${contactType === 'email' ? 'Email address' : 'Phone number'} verified successfully.`,
+      contactType,
+      emailVerified: Boolean(user.emailVerified),
+      phoneVerified: Boolean(user.phoneVerified),
+      isFullyVerified,
+      user: {
+        id: user._id,
+        role: user.role,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        emailVerified: user.emailVerified,
+        phoneVerified: user.phoneVerified,
+        verified: user.verified
+      }
+    });
+  } catch (error) {
+    console.error('verifyOtp error:', error.message);
+    res.status(500).json({ message: 'Server error verifying code. Please try again.' });
+  }
+};
+
+/**
+ * Get current verification status for the authenticated user
+ */
+const getVerificationStatus = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found.' });
+    }
+
+    const emailStatus = getEmailConfigStatus();
+    const smsStatus = getSmsConfigStatus();
+
+    const emailVerified = Boolean(user.emailVerified);
+    const phoneVerified = Boolean(user.phoneVerified);
+
+    res.json({
+      success: true,
+      email: user.email,
+      maskedEmail: maskEmail(user.email),
+      phone: user.phone,
+      maskedPhone: maskPhoneNumber(user.phoneFormatted || user.phone),
+      emailVerified,
+      phoneVerified,
+      isFullyVerified: emailVerified && phoneVerified,
+      role: user.role,
+      providers: {
+        emailConfigured: emailStatus.isConfigured,
+        smsConfigured: smsStatus.isConfigured,
+        missingEmailVariables: emailStatus.missingVariables,
+        missingSmsVariables: smsStatus.missingVariables
+      }
+    });
+  } catch (error) {
+    console.error('getVerificationStatus error:', error.message);
+    res.status(500).json({ message: 'Server error checking verification status.' });
+  }
+};
+
 const getProfile = async (req, res) => {
   try {
     const user = await User.findById(req.user.id).select('-password');
@@ -470,5 +779,8 @@ module.exports = {
   forgotPassword,
   resetPassword,
   getDonorRules,
+  sendVerificationOtp,
+  verifyOtp,
+  getVerificationStatus,
   getProfile
 };

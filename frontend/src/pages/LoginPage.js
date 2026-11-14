@@ -98,6 +98,13 @@ const LoginPage = () => {
 
       // Role-based redirect determined strictly by the authenticated backend user
       const role = response.user?.role;
+      const isUnverified = role !== 'admin' && (response.user?.emailVerified === false || response.user?.phoneVerified === false);
+
+      if (isUnverified) {
+        navigate('/verify', { replace: true });
+        return;
+      }
+
       let targetDashboard = '/';
       if (role === 'admin') {
         targetDashboard = '/admin';

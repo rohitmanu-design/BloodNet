@@ -111,7 +111,7 @@ const userSchema = new mongoose.Schema({
   },
   verified: {
     type: Boolean,
-    default: true
+    default: false
   },
   resetPasswordToken: {
     type: String
@@ -125,7 +125,15 @@ const userSchema = new mongoose.Schema({
   },
   emailVerified: {
     type: Boolean,
-    default: true
+    default: false
+  },
+  phoneVerified: {
+    type: Boolean,
+    default: false
+  },
+  phoneFormatted: {
+    type: String,
+    trim: true
   },
   emailVerificationToken: {
     type: String
