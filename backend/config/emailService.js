@@ -5,14 +5,16 @@
  */
 
 const getEmailConfigStatus = () => {
-  const host = process.env.SMTP_HOST;
-  const user = process.env.SMTP_USER;
-  const pass = process.env.SMTP_PASS;
+  const host = process.env.SMTP_HOST || process.env.EMAIL_HOST;
+  const user = process.env.SMTP_USER || process.env.EMAIL_USER;
+  const pass = process.env.SMTP_PASS || process.env.EMAIL_PASS;
+  const port = parseInt(process.env.SMTP_PORT || process.env.EMAIL_PORT, 10) || 587;
+  const secure = (process.env.SMTP_SECURE || process.env.EMAIL_SECURE) === 'true';
 
   const missingVariables = [];
-  if (!host) missingVariables.push('SMTP_HOST');
-  if (!user) missingVariables.push('SMTP_USER');
-  if (!pass) missingVariables.push('SMTP_PASS');
+  if (!host) missingVariables.push('SMTP_HOST (or EMAIL_HOST)');
+  if (!user) missingVariables.push('SMTP_USER (or EMAIL_USER)');
+  if (!pass) missingVariables.push('SMTP_PASS (or EMAIL_PASS)');
 
   return {
     isConfigured: missingVariables.length === 0,
@@ -20,8 +22,8 @@ const getEmailConfigStatus = () => {
     host,
     user,
     pass,
-    port: parseInt(process.env.SMTP_PORT, 10) || 587,
-    secure: process.env.SMTP_SECURE === 'true',
+    port,
+    secure,
     from: process.env.EMAIL_FROM || '"BloodNet+ Security" <noreply@bloodnet.org>'
   };
 };

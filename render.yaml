@@ -2,14 +2,15 @@ services:
   - type: web
     name: bloodnet-backend
     runtime: node
-    rootDir: backend
-    buildCommand: npm install
-    startCommand: node server.js
+    buildCommand: cd backend && npm install
+    startCommand: node backend/server.js
     healthCheckPath: /api/health
     autoDeploy: true
     envVars:
       - key: NODE_ENV
         value: production
+      - key: PORT
+        value: 10000
       - key: MONGODB_URI
         sync: false
       - key: JWT_SECRET
@@ -19,8 +20,34 @@ services:
       - key: BCRYPT_ROUNDS
         value: 10
       - key: CLIENT_URL
-        sync: false
+        value: https://bloodnet-plus-eight.vercel.app
       - key: FRONTEND_URL
-        sync: false
+        value: https://bloodnet-plus-eight.vercel.app
       - key: CORS_ORIGIN
+        value: https://bloodnet-plus-eight.vercel.app
+      - key: CORS_CREDENTIALS
+        value: true
+      - key: DONOR_MIN_WEIGHT_KG
+        value: 50
+      - key: DONOR_MIN_HEMOGLOBIN_GDL
+        value: 13.0
+      - key: DONOR_MIN_AGE_YEARS
+        value: 18
+      - key: DONOR_MAX_AGE_YEARS
+        value: 65
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: 587
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: EMAIL_FROM
+        value: '"BloodNet+ Security" <noreply@bloodnet.org>'
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_PHONE_NUMBER
         sync: false

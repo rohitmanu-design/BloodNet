@@ -1,0 +1,15 @@
+{
+  "name": "bloodnet-platform",
+  "version": "1.0.0",
+  "description": "BloodNet+ Emergency Blood Donation & Hospital Platform",
+  "main": "backend/server.js",
+  "scripts": {
+    "start": "node backend/server.js",
+    "build": "cd backend && npm install",
+    "postinstall": "cd backend && npm install",
+    "test": "cd backend && npm test"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
