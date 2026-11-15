@@ -12,6 +12,9 @@ const fs = require('fs');
 
 // Load environment variables (.env file for local dev)
 dotenv.config();
+if (fs.existsSync(path.join(__dirname, '.env'))) {
+  dotenv.config({ path: path.join(__dirname, '.env') });
+}
 
 // Fix DNS resolution for MongoDB Atlas SRV connection strings in certain environments
 const dns = require('dns');
