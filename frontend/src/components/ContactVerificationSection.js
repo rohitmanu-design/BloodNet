@@ -169,10 +169,10 @@ const ContactVerificationSection = ({
           <ShieldCheckIcon className="h-8 w-8" />
         </div>
         <h3 className="text-2xl font-bold text-gray-900">
-          Verify Your Email Address
+          Complete Your Registration
         </h3>
         <p className="text-sm text-gray-600 mt-1 max-w-md mx-auto">
-          We've sent a 4-digit verification code to your email to confirm your account and ensure secure access.
+          Every new user must verify their email with a 4-digit code to complete registration and activate their account.
         </p>
       </div>
 
@@ -278,7 +278,7 @@ const ContactVerificationSection = ({
                 loading={emailVerifying}
                 className="flex-1 py-3 text-sm font-semibold shadow-md"
               >
-                Verify Code
+                Verify & Complete Registration
               </Button>
 
               <Button
@@ -309,10 +309,10 @@ const ContactVerificationSection = ({
           {emailVerified ? (
             <span className="text-green-700 font-semibold flex items-center justify-center sm:justify-start">
               <CheckCircleIcon className="h-4 w-4 mr-1 inline" />
-              Email verified. You are ready to go!
+              Registration complete! Your email is verified.
             </span>
           ) : (
-            'Enter the 4-digit code to activate your account.'
+            'Email verification is required before your registration is finished.'
           )}
         </p>
 
@@ -322,7 +322,7 @@ const ContactVerificationSection = ({
           disabled={!emailVerified}
           className="w-full sm:w-auto px-6 py-3 font-semibold shadow-md"
         >
-          <span>Continue to Dashboard</span>
+          <span>Complete Registration & Go to Dashboard</span>
           <ArrowRightIcon className="h-4 w-4 ml-2 inline" />
         </Button>
       </div>

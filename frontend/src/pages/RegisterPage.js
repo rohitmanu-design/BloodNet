@@ -297,11 +297,11 @@ const RegisterPage = () => {
             <HeartSolidIcon className="h-14 w-14 text-red-500" />
           </div>
           <h2 className="text-3xl font-extrabold text-gray-900 tracking-tight sm:text-4xl">
-            {registeredUser ? 'Verify Your Email Address' : 'Join BloodNet+'}
+            {registeredUser ? 'Verify Email to Complete Registration' : 'Join BloodNet+'}
           </h2>
           <p className="mt-2 text-sm text-gray-600">
             {registeredUser
-              ? 'Enter the 4-digit verification code sent to your email to activate your account'
+              ? 'A 4-digit verification code has been sent to your email. All new users must verify their email before completing registration.'
               : selectedRole
               ? `Registering as a ${selectedRole === 'recipient' ? 'Blood Recipient' : selectedRole === 'donor' ? 'Blood Donor' : 'Hospital'}`
               : 'Choose your role to get started saving lives'}
@@ -874,8 +874,12 @@ const RegisterPage = () => {
                   loading={loading}
                   className="w-full py-4 text-base font-semibold shadow-lg hover:shadow-xl transition-all"
                 >
-                  Create {selectedRole === 'recipient' ? 'Recipient' : selectedRole === 'donor' ? 'Donor' : 'Hospital'} Account
+                  Verify Email & Complete Registration &rarr;
                 </Button>
+                <p className="mt-2 text-center text-xs text-gray-500">
+                  <ShieldCheckIcon className="inline h-3.5 w-3.5 mr-1 text-teal-600 -mt-0.5" />
+                  Every new user must verify their email with a 4-digit code before completing registration.
+                </p>
               </div>
             </form>
 

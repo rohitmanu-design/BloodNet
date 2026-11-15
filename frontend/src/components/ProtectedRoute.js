@@ -25,6 +25,11 @@ const ProtectedRoute = ({ children, role }) => {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
+  // Mandatory email verification for all non-admin users before completing access
+  if (user && user.role !== 'admin' && user.emailVerified === false) {
+    return <Navigate to="/verify" replace />;
+  }
+
   // Redirect to appropriate dashboard if role doesn't match
   if (role && user && user.role !== role) {
     const dashboardPath = user.role === 'admin' ? '/admin' : `/dashboard/${user.role}`;
