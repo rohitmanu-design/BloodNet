@@ -11,7 +11,9 @@ const {
   sendVerificationOtp,
   verifyOtp,
   getVerificationStatus,
-  getProfile
+  getProfile,
+  sendPreRegisterOtp,
+  verifyPreRegisterOtp
 } = require('../controllers/authController');
 const DONOR_SCREENING_RULES = require('../config/donorRules');
 
@@ -194,6 +196,28 @@ router.post('/reset-password', passwordResetLimiter, [
 }, resetPassword);
 
 router.get('/donor-rules', getDonorRules);
+
+// Pre-registration inline email verification (public, rate limited)
+router.post('/send-pre-register-otp', otpSendLimiter, [
+  body('email').isEmail().normalizeEmail().withMessage('Please provide a valid email address')
+], (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ message: errors.array()[0]?.msg || 'Valid email required' });
+  }
+  next();
+}, sendPreRegisterOtp);
+
+router.post('/verify-pre-register-otp', otpVerifyLimiter, [
+  body('email').isEmail().normalizeEmail().withMessage('Please provide a valid email address'),
+  body('otp').isLength({ min: 4, max: 4 }).isNumeric().withMessage('OTP must be a 4-digit number')
+], (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ message: errors.array()[0]?.msg || 'Validation failed' });
+  }
+  next();
+}, verifyPreRegisterOtp);
 
 router.post('/send-verification-otp', auth, otpSendLimiter, [
   body('contactType').isIn(['email', 'phone']).withMessage('contactType must be email or phone')

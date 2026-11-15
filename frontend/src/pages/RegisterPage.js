@@ -13,7 +13,10 @@ import {
   ShieldCheckIcon,
   InformationCircleIcon,
   CheckCircleIcon,
-  ArrowLeftIcon
+  ArrowLeftIcon,
+  EnvelopeIcon,
+  ExclamationCircleIcon,
+  ArrowPathIcon
 } from '@heroicons/react/24/solid';
 import { HeartIcon } from '@heroicons/react/24/outline';
 import Button from '../components/ui/Button';
@@ -54,8 +57,103 @@ const RegisterPage = () => {
   const [errors, setErrors] = useState({});
   const [serverError, setServerError] = useState('');
 
+  // Inline Email Verification State
+  const [emailVerified, setEmailVerified] = useState(false);
+  const [verificationToken, setVerificationToken] = useState('');
+  const [otpSent, setOtpSent] = useState(false);
+  const [otpCode, setOtpCode] = useState('');
+  const [otpSending, setOtpSending] = useState(false);
+  const [otpVerifying, setOtpVerifying] = useState(false);
+  const [otpCooldown, setOtpCooldown] = useState(0);
+  const [otpError, setOtpError] = useState('');
+  const [otpSuccess, setOtpSuccess] = useState('');
+
   const { register, loading, clearError } = useAuth();
   const navigate = useNavigate();
+
+  // Cooldown countdown timer for inline OTP
+  useEffect(() => {
+    if (otpCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setOtpCooldown((prev) => Math.max(0, prev - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [otpCooldown]);
+
+  const isValidEmail = (val) => {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((val || '').trim());
+  };
+
+  const handleSendOtp = async () => {
+    const emailToVerify = formData.email.trim().toLowerCase();
+    if (!emailToVerify || !isValidEmail(emailToVerify)) {
+      setErrors((prev) => ({ ...prev, email: 'Please enter a valid email address first.' }));
+      return;
+    }
+
+    setOtpSending(true);
+    setOtpError('');
+    setOtpSuccess('');
+
+    try {
+      const res = await authAPI.sendPreRegisterOtp({ email: emailToVerify });
+      setOtpSent(true);
+      setOtpSuccess(res.data?.message || 'Verification code sent to your email!');
+      setOtpCooldown(res.data?.cooldownSeconds || 60);
+    } catch (err) {
+      const msg = err.response?.data?.message || 'Failed to send verification code. Please check your email.';
+      setOtpError(msg);
+    } finally {
+      setOtpSending(false);
+    }
+  };
+
+  const handleVerifyOtp = async (e) => {
+    if (e) e.preventDefault();
+    if (otpCode.length !== 4) {
+      setOtpError('Please enter the complete 4-digit code.');
+      return;
+    }
+
+    setOtpVerifying(true);
+    setOtpError('');
+    setOtpSuccess('');
+
+    try {
+      const res = await authAPI.verifyPreRegisterOtp({
+        email: formData.email.trim().toLowerCase(),
+        otp: otpCode
+      });
+
+      if (res.data?.verified && res.data?.verificationToken) {
+        setEmailVerified(true);
+        setVerificationToken(res.data.verificationToken);
+        setOtpSent(false);
+        setOtpCode('');
+        setOtpError('');
+        setOtpSuccess('Email verified successfully!');
+        if (errors.email) {
+          setErrors((prev) => ({ ...prev, email: '' }));
+        }
+      } else {
+        setOtpError(res.data?.message || 'Verification failed. Please try again.');
+      }
+    } catch (err) {
+      const msg = err.response?.data?.message || 'Invalid code. Please try again.';
+      setOtpError(msg);
+    } finally {
+      setOtpVerifying(false);
+    }
+  };
+
+  const handleEditEmail = () => {
+    setEmailVerified(false);
+    setVerificationToken('');
+    setOtpSent(false);
+    setOtpCode('');
+    setOtpError('');
+    setOtpSuccess('');
+  };
 
   // Load donor rules from backend
   useEffect(() => {
@@ -106,6 +204,15 @@ const RegisterPage = () => {
       [name]: fieldValue
     }));
 
+    if (name === 'email') {
+      setEmailVerified(false);
+      setVerificationToken('');
+      setOtpSent(false);
+      setOtpCode('');
+      setOtpError('');
+      setOtpSuccess('');
+    }
+
     if (errors[name]) {
       setErrors((prev) => ({
         ...prev,
@@ -136,6 +243,8 @@ const RegisterPage = () => {
       errs.email = 'Email address is required';
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email.trim())) {
       errs.email = 'Please enter a valid email address';
+    } else if (!emailVerified) {
+      errs.email = 'Please verify your email address using the Send Code button before completing registration';
     }
 
     if (!formData.password) {
@@ -261,9 +370,13 @@ const RegisterPage = () => {
       }
     }
 
+    payload.verificationToken = verificationToken;
+
     try {
       const response = await register(payload);
-      setRegisteredUser(response.user || payload);
+      const role = response?.user?.role || selectedRole;
+      const targetDashboard = role === 'admin' ? '/admin' : `/dashboard/${role}`;
+      navigate(targetDashboard, { replace: true });
     } catch (err) {
       const msg = err.response?.data?.message || err.message || 'Registration failed. Please check your inputs.';
       setServerError(msg);
@@ -297,25 +410,16 @@ const RegisterPage = () => {
             <HeartSolidIcon className="h-14 w-14 text-red-500" />
           </div>
           <h2 className="text-3xl font-extrabold text-gray-900 tracking-tight sm:text-4xl">
-            {registeredUser ? 'Verify Email to Complete Registration' : 'Join BloodNet+'}
+            Join BloodNet+
           </h2>
           <p className="mt-2 text-sm text-gray-600">
-            {registeredUser
-              ? 'A 4-digit verification code has been sent to your email. All new users must verify their email before completing registration.'
-              : selectedRole
+            {selectedRole
               ? `Registering as a ${selectedRole === 'recipient' ? 'Blood Recipient' : selectedRole === 'donor' ? 'Blood Donor' : 'Hospital'}`
               : 'Choose your role to get started saving lives'}
           </p>
         </div>
 
-        {/* STEP 3: CONTACT VERIFICATION (AFTER REGISTRATION) */}
-        {registeredUser ? (
-          <ContactVerificationSection
-            initialEmail={registeredUser.email}
-            initialPhone={registeredUser.phoneFormatted || registeredUser.phone}
-            userRole={registeredUser.role || selectedRole}
-          />
-        ) : !selectedRole ? (
+        {!selectedRole ? (
           /* STEP 1: ROLE SELECTION */
           <Card className="p-8 shadow-2xl bg-white/95 backdrop-blur-sm border border-gray-100">
             <h3 className="text-xl font-bold text-gray-900 mb-6 text-center">
@@ -481,25 +585,159 @@ const RegisterPage = () => {
                 </div>
               )}
 
-              {/* Email Address */}
-              <div>
-                <label htmlFor="email" className="block text-sm font-semibold text-gray-700 mb-1">
-                  Email Address *
-                </label>
-                <input
-                  id="email"
-                  name="email"
-                  type="email"
-                  required
-                  autoComplete="email"
-                  value={formData.email}
-                  onChange={handleChange}
-                  placeholder={selectedRole === 'hospital' ? 'admin@cityhospital.org' : 'jane.doe@example.com'}
-                  className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-red-500 focus:border-transparent ${
-                    errors.email ? 'border-red-500 bg-red-50/30' : 'border-gray-300'
-                  }`}
-                />
-                {errors.email && <p className="mt-1 text-xs text-red-600">{errors.email}</p>}
+              {/* Email Address & Inline Verification */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label htmlFor="email" className="block text-sm font-semibold text-gray-700">
+                    Email Address *
+                  </label>
+                  {emailVerified && (
+                    <span className="inline-flex items-center text-xs font-bold text-green-700 bg-green-100 px-2.5 py-0.5 rounded-full">
+                      <CheckCircleIcon className="h-3.5 w-3.5 mr-1 text-green-600" />
+                      Email Verified ✓
+                    </span>
+                  )}
+                </div>
+
+                <div className="relative flex items-center">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400">
+                    <EnvelopeIcon className="h-5 w-5" />
+                  </div>
+                  <input
+                    id="email"
+                    name="email"
+                    type="email"
+                    required
+                    readOnly={emailVerified}
+                    autoComplete="email"
+                    value={formData.email}
+                    onChange={handleChange}
+                    placeholder={selectedRole === 'hospital' ? 'admin@cityhospital.org' : 'jane.doe@example.com'}
+                    className={`w-full pl-11 pr-32 py-3 border rounded-xl focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all ${
+                      emailVerified
+                        ? 'border-green-400 bg-green-50/30 text-gray-800 font-medium'
+                        : errors.email
+                        ? 'border-red-500 bg-red-50/30'
+                        : 'border-gray-300'
+                    }`}
+                  />
+
+                  <div className="absolute right-1.5 inset-y-1.5 flex items-center">
+                    {emailVerified ? (
+                      <button
+                        type="button"
+                        onClick={handleEditEmail}
+                        className="px-3 py-1.5 text-xs font-semibold text-gray-600 hover:text-red-600 hover:bg-gray-100 rounded-lg transition-colors"
+                      >
+                        Change
+                      </button>
+                    ) : (
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={!isValidEmail(formData.email) || otpSending || otpCooldown > 0}
+                        loading={otpSending}
+                        onClick={handleSendOtp}
+                        className="px-3 py-1.5 text-xs font-bold whitespace-nowrap shadow-sm"
+                      >
+                        {otpCooldown > 0
+                          ? `${otpCooldown}s`
+                          : otpSent
+                          ? 'Resend'
+                          : 'Verify Email'}
+                      </Button>
+                    )}
+                  </div>
+                </div>
+                {errors.email && <p className="text-xs text-red-600 font-medium">{errors.email}</p>}
+
+                {/* Inline OTP Verification Box (Appears when code is sent and email not yet verified) */}
+                <AnimatePresence>
+                  {otpSent && !emailVerified && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0, y: -8 }}
+                      animate={{ opacity: 1, height: 'auto', y: 0 }}
+                      exit={{ opacity: 0, height: 0, y: -8 }}
+                      transition={{ duration: 0.25 }}
+                      className="overflow-hidden"
+                    >
+                      <div className="p-4 bg-gradient-to-r from-red-50 via-white to-red-50/50 border-2 border-red-200 rounded-xl space-y-3 shadow-inner">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-gray-800 uppercase tracking-wide flex items-center">
+                            <ShieldCheckIcon className="h-4 w-4 mr-1 text-red-500" />
+                            Enter 4-Digit Verification Code
+                          </span>
+                          <span className="text-xs text-gray-500 truncate max-w-[180px]">
+                            Sent to {formData.email}
+                          </span>
+                        </div>
+
+                        {otpError && (
+                          <div className="p-2.5 bg-red-100/80 border border-red-300 rounded-lg text-xs text-red-700 flex items-center font-medium">
+                            <ExclamationCircleIcon className="h-4 w-4 mr-1.5 flex-shrink-0 text-red-500" />
+                            <span>{otpError}</span>
+                          </div>
+                        )}
+
+                        {otpSuccess && !otpError && (
+                          <div className="p-2.5 bg-green-100/80 border border-green-300 rounded-lg text-xs text-green-800 flex items-center font-medium">
+                            <CheckCircleIcon className="h-4 w-4 mr-1.5 flex-shrink-0 text-green-600" />
+                            <span>{otpSuccess}</span>
+                          </div>
+                        )}
+
+                        <div className="flex items-center gap-2 pt-1">
+                          <div className="relative">
+                            <input
+                              id="inline-otp-input"
+                              type="text"
+                              inputMode="numeric"
+                              pattern="[0-9]*"
+                              maxLength={4}
+                              value={otpCode}
+                              onChange={(e) => {
+                                const val = e.target.value.replace(/\D/g, '').slice(0, 4);
+                                setOtpCode(val);
+                                if (otpError) setOtpError('');
+                              }}
+                              placeholder="• • • •"
+                              aria-label="4-digit verification code"
+                              className="w-36 text-center tracking-[0.5em] text-xl font-bold py-2 px-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 font-mono bg-white shadow-inner"
+                              autoFocus
+                            />
+                            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-gray-400 font-mono">
+                              {otpCode.length}/4
+                            </span>
+                          </div>
+
+                          <Button
+                            type="button"
+                            disabled={otpCode.length !== 4 || otpVerifying}
+                            loading={otpVerifying}
+                            onClick={handleVerifyOtp}
+                            className="px-4 py-2 text-xs font-bold shadow"
+                          >
+                            Verify Code
+                          </Button>
+
+                          <button
+                            type="button"
+                            disabled={otpSending || otpCooldown > 0}
+                            onClick={handleSendOtp}
+                            className="text-xs text-gray-500 hover:text-red-600 disabled:opacity-50 disabled:cursor-not-allowed pl-2 flex items-center"
+                          >
+                            <ArrowPathIcon className={`h-3.5 w-3.5 mr-1 ${otpSending ? 'animate-spin' : ''}`} />
+                            {otpCooldown > 0 ? `Resend (${otpCooldown}s)` : 'Resend'}
+                          </button>
+                        </div>
+
+                        <p className="text-[11px] text-gray-500 leading-tight">
+                          Please check your Inbox and Spam folder. The code expires in 5 minutes.
+                        </p>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
 
               {/* Passwords */}
@@ -874,11 +1112,15 @@ const RegisterPage = () => {
                   loading={loading}
                   className="w-full py-4 text-base font-semibold shadow-lg hover:shadow-xl transition-all"
                 >
-                  Verify Email & Complete Registration &rarr;
+                  {emailVerified
+                    ? 'Complete Registration & Go to Dashboard →'
+                    : 'Verify Email & Complete Registration →'}
                 </Button>
                 <p className="mt-2 text-center text-xs text-gray-500">
                   <ShieldCheckIcon className="inline h-3.5 w-3.5 mr-1 text-teal-600 -mt-0.5" />
-                  Every new user must verify their email with a 4-digit code before completing registration.
+                  {emailVerified
+                    ? 'Email verified successfully. Click above to complete your registration.'
+                    : 'Please enter and verify your email address with the 4-digit code above.'}
                 </p>
               </div>
             </form>

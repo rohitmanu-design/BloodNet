@@ -81,6 +81,20 @@ const register = async (req, res) => {
     const cleanEmergency = (emergencyContact || contactNumber || phone || '').trim();
     const formattedPhone = normalizePhoneNumber(cleanPhone);
 
+    // Check if inline pre-registration verification token is supplied
+    const { verificationToken } = req.body;
+    let isPreVerified = false;
+    if (verificationToken) {
+      try {
+        const decoded = jwt.verify(verificationToken, getJwtSecret());
+        if (decoded.email === cleanEmail && decoded.verified === true && decoded.purpose === 'email_pre_verification') {
+          isPreVerified = true;
+        }
+      } catch (err) {
+        console.warn('[AUTH] Invalid or expired verificationToken in registration:', err.message);
+      }
+    }
+
     // Prepare user record
     const resolvedAddress = (address || location?.address || '').trim();
     const resolvedCity = (city || location?.city || '').trim();
@@ -90,9 +104,10 @@ const register = async (req, res) => {
       email: cleanEmail,
       phone: cleanPhone,
       phoneFormatted: formattedPhone,
-      emailVerified: false,
+      emailVerified: isPreVerified,
       phoneVerified: false,
-      verified: false,
+      verified: isPreVerified,
+      status: (role === 'hospital' ? 'pending' : (isPreVerified ? 'active' : 'pending')),
       termsConsent: termsConsent !== false,
       address: resolvedAddress,
       city: resolvedCity,
@@ -773,6 +788,184 @@ const getProfile = async (req, res) => {
   }
 };
 
+/**
+ * Sends a 4-digit verification code to an email BEFORE registration completes.
+ * Checks for email duplication and applies strict rate limits.
+ */
+const sendPreRegisterOtp = async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ message: 'Email address is required.' });
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+
+    // Check if an account already exists with this email
+    const existingUser = await User.findOne({ email: cleanEmail });
+    if (existingUser) {
+      return res.status(400).json({
+        message: 'An account with this email address already exists. Please log in.'
+      });
+    }
+
+    // Abuse prevention: Check resend frequency (minimum 60s cooldown)
+    const recentOtp = await OtpVerification.findOne({
+      destination: cleanEmail,
+      contactType: 'email',
+      createdAt: { $gt: new Date(Date.now() - 60 * 1000) }
+    }).sort({ createdAt: -1 });
+
+    if (recentOtp) {
+      const remainingSeconds = Math.max(1, Math.ceil((60 * 1000 - (Date.now() - recentOtp.createdAt.getTime())) / 1000));
+      return res.status(429).json({
+        message: `Please wait ${remainingSeconds} seconds before requesting another code.`,
+        retryAfterSeconds: remainingSeconds
+      });
+    }
+
+    // Abuse prevention: Max 5 attempts per hour per email
+    const hourlyCount = await OtpVerification.countDocuments({
+      destination: cleanEmail,
+      contactType: 'email',
+      createdAt: { $gt: new Date(Date.now() - 60 * 60 * 1000) }
+    });
+
+    if (hourlyCount >= 5) {
+      return res.status(429).json({
+        message: 'Maximum verification attempts reached for this hour. Please try again later.'
+      });
+    }
+
+    // Invalidate existing active OTPs for this destination
+    await OtpVerification.updateMany(
+      { destination: cleanEmail, contactType: 'email', isUsed: false },
+      { isUsed: true }
+    );
+
+    // Generate cryptographically secure 4-digit code (1000 - 9999)
+    const rawOtp = crypto.randomInt(1000, 10000).toString();
+    const salt = crypto.randomBytes(16).toString('hex');
+    const otpHash = crypto.createHash('sha256').update(rawOtp + salt).digest('hex');
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
+
+    await OtpVerification.create({
+      destination: cleanEmail,
+      contactType: 'email',
+      otpHash,
+      salt,
+      attempts: 0,
+      maxAttempts: 5,
+      isUsed: false,
+      expiresAt,
+      lastSentAt: new Date()
+    });
+
+    // Deliver via configured provider (Brevo, Resend, or SMTP)
+    const emailResult = await sendVerificationEmail({ toEmail: cleanEmail, otpCode: rawOtp });
+    if (!emailResult.configured) {
+      return res.status(503).json({
+        message: 'Email service is currently unavailable. Please contact support.',
+        missingVariables: emailResult.missingVariables
+      });
+    }
+
+    if (!emailResult.delivered) {
+      return res.status(502).json({
+        message: emailResult.error || 'Failed to deliver verification code. Please verify your email address.'
+      });
+    }
+
+    res.json({
+      success: true,
+      message: `A 4-digit verification code has been sent to ${maskEmail(cleanEmail)}.`,
+      destination: maskEmail(cleanEmail),
+      contactType: 'email',
+      cooldownSeconds: 60
+    });
+  } catch (error) {
+    console.error('sendPreRegisterOtp error:', error);
+    res.status(500).json({ message: 'Server error sending verification code.' });
+  }
+};
+
+/**
+ * Verifies the 4-digit OTP code before completing registration.
+ * Issues a signed verificationToken for the registration form.
+ */
+const verifyPreRegisterOtp = async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+    if (!email || !otp) {
+      return res.status(400).json({ message: 'Email and 4-digit OTP code are required.' });
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanOtp = String(otp).trim();
+
+    const otpRecord = await OtpVerification.findOne({
+      destination: cleanEmail,
+      contactType: 'email',
+      isUsed: false
+    }).sort({ createdAt: -1 });
+
+    if (!otpRecord) {
+      return res.status(400).json({
+        message: 'No active verification code found for this email. Please request a new code.'
+      });
+    }
+
+    if (new Date() > otpRecord.expiresAt) {
+      otpRecord.isUsed = true;
+      await otpRecord.save();
+      return res.status(400).json({
+        message: 'Verification code has expired. Please request a new code.'
+      });
+    }
+
+    if (otpRecord.attempts >= otpRecord.maxAttempts) {
+      otpRecord.isUsed = true;
+      await otpRecord.save();
+      return res.status(429).json({
+        message: 'Too many incorrect attempts. This code is now invalid. Please request a new code.'
+      });
+    }
+
+    const computedHash = crypto.createHash('sha256').update(cleanOtp + otpRecord.salt).digest('hex');
+
+    if (computedHash !== otpRecord.otpHash) {
+      otpRecord.attempts += 1;
+      await otpRecord.save();
+      const remainingAttempts = Math.max(0, otpRecord.maxAttempts - otpRecord.attempts);
+      return res.status(400).json({
+        message: `Invalid verification code. ${remainingAttempts} attempt(s) remaining.`,
+        remainingAttempts
+      });
+    }
+
+    // Code is valid - mark used
+    otpRecord.isUsed = true;
+    await otpRecord.save();
+
+    // Issue signed verification token (valid for 30 minutes to complete registration)
+    const verificationToken = jwt.sign(
+      { email: cleanEmail, verified: true, purpose: 'email_pre_verification' },
+      getJwtSecret(),
+      { expiresIn: '30m' }
+    );
+
+    res.json({
+      success: true,
+      verified: true,
+      message: 'Email address verified successfully!',
+      verificationToken
+    });
+  } catch (error) {
+    console.error('verifyPreRegisterOtp error:', error);
+    res.status(500).json({ message: 'Server error verifying code.' });
+  }
+};
+
 module.exports = {
   register,
   login,
@@ -782,5 +975,7 @@ module.exports = {
   sendVerificationOtp,
   verifyOtp,
   getVerificationStatus,
-  getProfile
+  getProfile,
+  sendPreRegisterOtp,
+  verifyPreRegisterOtp
 };

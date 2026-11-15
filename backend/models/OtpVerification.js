@@ -4,7 +4,7 @@ const otpVerificationSchema = new mongoose.Schema({
   userId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: true,
+    required: false,
     index: true
   },
   contactType: {
@@ -54,5 +54,6 @@ const otpVerificationSchema = new mongoose.Schema({
 });
 
 otpVerificationSchema.index({ userId: 1, contactType: 1, isUsed: 1 });
+otpVerificationSchema.index({ destination: 1, contactType: 1, isUsed: 1 });
 
 module.exports = mongoose.model('OtpVerification', otpVerificationSchema);
