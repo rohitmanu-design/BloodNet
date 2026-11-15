@@ -83,7 +83,7 @@ const getEmailConfigStatus = () => {
 
   return {
     isConfigured: hasHttpProvider || hasSmtpProvider,
-    provider: resendApiKey ? 'resend' : brevoApiKey ? 'brevo' : 'smtp',
+    provider: brevoApiKey ? 'brevo' : resendApiKey ? 'resend' : 'smtp',
     missingVariables,
     host,
     user,
@@ -145,6 +145,14 @@ const sendVerificationEmail = async ({ toEmail, otpCode }) => {
       );
       return { delivered: true, configured: true, messageId: res.data };
     } catch (err) {
+      const msg = err.message || '';
+      if (msg.includes('You can only send testing emails to your own email address')) {
+        return {
+          delivered: false,
+          configured: true,
+          error: 'Resend free sandbox only permits sending to your own email (rohitsanas295@gmail.com). To send OTPs to any user email address without owning a custom domain, provide a free BREVO_API_KEY (from brevo.com), or verify a custom domain at resend.com/domains.'
+        };
+      }
       return { delivered: false, configured: true, error: `Resend API error: ${err.message}` };
     }
   }
@@ -263,6 +271,14 @@ const sendPasswordResetEmail = async ({ toEmail, resetToken, resetUrl }) => {
       );
       return { delivered: true, configured: true, messageId: res.data };
     } catch (err) {
+      const msg = err.message || '';
+      if (msg.includes('You can only send testing emails to your own email address')) {
+        return {
+          delivered: false,
+          configured: true,
+          error: 'Resend free sandbox only permits sending to your own email (rohitsanas295@gmail.com). To send OTPs to any user email address without owning a custom domain, provide a free BREVO_API_KEY (from brevo.com), or verify a custom domain at resend.com/domains.'
+        };
+      }
       return { delivered: false, configured: true, error: `Resend API error: ${err.message}` };
     }
   }
