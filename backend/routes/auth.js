@@ -23,7 +23,8 @@ const loginLimiter = rateLimit({
   max: 15, // 15 attempts per IP per 15 min
   message: { message: 'Too many login attempts from this network. Please wait 15 minutes before trying again.' },
   standardHeaders: true,
-  legacyHeaders: false
+  legacyHeaders: false,
+  validate: { xForwardedForHeader: false }
 });
 
 const registerLimiter = rateLimit({
@@ -31,7 +32,8 @@ const registerLimiter = rateLimit({
   max: 20, // 20 account registrations per hour per IP
   message: { message: 'Too many registration requests from this network. Please try again later.' },
   standardHeaders: true,
-  legacyHeaders: false
+  legacyHeaders: false,
+  validate: { xForwardedForHeader: false }
 });
 
 const passwordResetLimiter = rateLimit({
@@ -39,7 +41,8 @@ const passwordResetLimiter = rateLimit({
   max: 6,
   message: { message: 'Too many password reset requests. Please wait a few minutes before trying again.' },
   standardHeaders: true,
-  legacyHeaders: false
+  legacyHeaders: false,
+  validate: { xForwardedForHeader: false }
 });
 
 const otpSendLimiter = rateLimit({
@@ -47,7 +50,8 @@ const otpSendLimiter = rateLimit({
   max: 12,
   message: { message: 'Too many verification code requests. Please wait before requesting again.' },
   standardHeaders: true,
-  legacyHeaders: false
+  legacyHeaders: false,
+  validate: { xForwardedForHeader: false }
 });
 
 const otpVerifyLimiter = rateLimit({
@@ -55,7 +59,8 @@ const otpVerifyLimiter = rateLimit({
   max: 20,
   message: { message: 'Too many verification attempts. Please wait a few minutes before trying again.' },
   standardHeaders: true,
-  legacyHeaders: false
+  legacyHeaders: false,
+  validate: { xForwardedForHeader: false }
 });
 
 const baseRegisterValidation = [

@@ -4,6 +4,17 @@
  * Never logs OTPs, passwords, or tokens.
  */
 
+const path = require('path');
+const fs = require('fs');
+const dotenv = require('dotenv');
+
+// Ensure environment variables are loaded
+dotenv.config();
+const envPath = path.join(__dirname, '..', '.env');
+if (fs.existsSync(envPath)) {
+  dotenv.config({ path: envPath });
+}
+
 const getEmailConfigStatus = () => {
   const host = process.env.SMTP_HOST || process.env.EMAIL_HOST;
   const user = process.env.SMTP_USER || process.env.EMAIL_USER;

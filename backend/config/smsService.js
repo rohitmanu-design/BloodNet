@@ -4,6 +4,17 @@
  * Never logs OTPs, passwords, or secrets.
  */
 
+const path = require('path');
+const fs = require('fs');
+const dotenv = require('dotenv');
+
+// Ensure environment variables are loaded
+dotenv.config();
+const envPath = path.join(__dirname, '..', '.env');
+if (fs.existsSync(envPath)) {
+  dotenv.config({ path: envPath });
+}
+
 const getSmsConfigStatus = () => {
   const accountSid = process.env.TWILIO_ACCOUNT_SID;
   const authToken = process.env.TWILIO_AUTH_TOKEN;

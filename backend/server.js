@@ -25,6 +25,8 @@ try {
 }
 
 const app = express();
+// Enable proxy trust for Render, Cloudflare, and Vercel reverse proxies
+app.set('trust proxy', 1);
 const server = http.createServer(app);
 
 // Security & Performance middleware
