@@ -137,7 +137,7 @@ const sendVerificationEmail = async ({ toEmail, otpCode }) => {
   // 1. Prioritize HTTP REST APIs (works on Render free tier over HTTPS port 443)
   if (config.provider === 'resend') {
     try {
-      const from = process.env.EMAIL_FROM || 'BloodNet+ <onboarding@resend.dev>';
+      const from = process.env.RESEND_FROM || 'BloodNet+ <onboarding@resend.dev>';
       const res = await sendViaHttps(
         'https://api.resend.com/emails',
         { Authorization: `Bearer ${config.resendApiKey}` },
@@ -255,7 +255,7 @@ const sendPasswordResetEmail = async ({ toEmail, resetToken, resetUrl }) => {
 
   if (config.provider === 'resend') {
     try {
-      const from = process.env.EMAIL_FROM || 'BloodNet+ <onboarding@resend.dev>';
+      const from = process.env.RESEND_FROM || 'BloodNet+ <onboarding@resend.dev>';
       const res = await sendViaHttps(
         'https://api.resend.com/emails',
         { Authorization: `Bearer ${config.resendApiKey}` },
