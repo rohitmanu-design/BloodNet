@@ -1,8 +1,8 @@
 import axios from 'axios';
 
 const getApiBaseUrl = () => {
-  // If served directly from Render backend public directory
-  if (typeof window !== 'undefined' && window.location.hostname.includes('onrender.com')) {
+  // If served directly from the backend server itself
+  if (typeof window !== 'undefined' && window.location.hostname === 'bloodnet-2.onrender.com') {
     return '/api';
   }
   const configured = process.env.REACT_APP_API_URL;
@@ -10,10 +10,13 @@ const getApiBaseUrl = () => {
   if (configured && configured.includes('bloodnet-xi2s.onrender.com')) {
     return 'https://bloodnet-2.onrender.com/api';
   }
-  if (!configured && typeof window !== 'undefined' && window.location.hostname !== 'localhost') {
+  if (configured) {
+    return configured;
+  }
+  if (typeof window !== 'undefined' && window.location.hostname !== 'localhost') {
     return 'https://bloodnet-2.onrender.com/api';
   }
-  return configured || 'http://localhost:5000/api';
+  return 'http://localhost:5000/api';
 };
 
 const API_BASE_URL = getApiBaseUrl();
