@@ -16,11 +16,14 @@ if (fs.existsSync(envPath)) {
 }
 
 const getEmailConfigStatus = () => {
-  const host = process.env.SMTP_HOST || process.env.EMAIL_HOST;
+  const host = process.env.SMTP_HOST || process.env.EMAIL_HOST || 'smtp.gmail.com';
   const user = process.env.SMTP_USER || process.env.EMAIL_USER;
   const pass = process.env.SMTP_PASS || process.env.EMAIL_PASS;
-  const port = parseInt(process.env.SMTP_PORT || process.env.EMAIL_PORT, 10) || 587;
-  const secure = (process.env.SMTP_SECURE || process.env.EMAIL_SECURE) === 'true';
+  const rawPort = process.env.SMTP_PORT || process.env.EMAIL_PORT;
+  const port = rawPort ? parseInt(rawPort, 10) : 465;
+  const secure = process.env.SMTP_SECURE !== undefined
+    ? process.env.SMTP_SECURE === 'true'
+    : (process.env.EMAIL_SECURE !== undefined ? process.env.EMAIL_SECURE === 'true' : port === 465);
 
   const missingVariables = [];
   if (!host) missingVariables.push('SMTP_HOST (or EMAIL_HOST)');
@@ -66,7 +69,10 @@ const sendVerificationEmail = async ({ toEmail, otpCode }) => {
       auth: {
         user: config.user,
         pass: config.pass
-      }
+      },
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 15000
     });
 
     const info = await transporter.sendMail({
@@ -134,7 +140,10 @@ const sendPasswordResetEmail = async ({ toEmail, resetToken, resetUrl }) => {
       auth: {
         user: config.user,
         pass: config.pass
-      }
+      },
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 15000
     });
 
     const info = await transporter.sendMail({
