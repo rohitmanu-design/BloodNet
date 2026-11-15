@@ -44,7 +44,7 @@ const authorize = (...roles) => {
 };
 
 /**
- * Ensures both email and phone number have been verified before accessing protected features.
+ * Ensures email address has been verified before accessing protected features.
  * Preserves access for administrator accounts and existing legacy accounts.
  */
 const requireVerifiedContact = (req, res, next) => {
@@ -57,25 +57,22 @@ const requireVerifiedContact = (req, res, next) => {
     return next();
   }
 
-  // Preserve compatibility for legacy existing accounts (created before phone verification was introduced)
-  const isLegacyAccount = req.user.verified === true && req.user.phoneVerified === undefined;
+  // Preserve compatibility for legacy existing accounts
+  const isLegacyAccount = req.user.verified === true && req.user.emailVerified === undefined;
   if (isLegacyAccount) {
     return next();
   }
 
   const isEmailVerified = Boolean(req.user.emailVerified);
-  const isPhoneVerified = Boolean(req.user.phoneVerified);
 
-  if (!isEmailVerified || !isPhoneVerified) {
+  if (!isEmailVerified) {
     return res.status(403).json({
-      code: 'CONTACT_VERIFICATION_REQUIRED',
-      message: 'Both email address and phone number verification are required before you can perform this action.',
+      code: 'EMAIL_VERIFICATION_REQUIRED',
+      message: 'Email address verification is required before you can perform this action.',
       verificationStatus: {
-        emailVerified: isEmailVerified,
-        phoneVerified: isPhoneVerified,
+        emailVerified: false,
         isFullyVerified: false,
-        email: req.user.email,
-        phone: req.user.phone
+        email: req.user.email
       }
     });
   }

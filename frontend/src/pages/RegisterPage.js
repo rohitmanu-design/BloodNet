@@ -297,11 +297,11 @@ const RegisterPage = () => {
             <HeartSolidIcon className="h-14 w-14 text-red-500" />
           </div>
           <h2 className="text-3xl font-extrabold text-gray-900 tracking-tight sm:text-4xl">
-            {registeredUser ? 'Verify Your Account' : 'Join BloodNet+'}
+            {registeredUser ? 'Verify Your Email Address' : 'Join BloodNet+'}
           </h2>
           <p className="mt-2 text-sm text-gray-600">
             {registeredUser
-              ? 'Complete contact verification to finalize your registration'
+              ? 'Enter the 4-digit verification code sent to your email to activate your account'
               : selectedRole
               ? `Registering as a ${selectedRole === 'recipient' ? 'Blood Recipient' : selectedRole === 'donor' ? 'Blood Donor' : 'Hospital'}`
               : 'Choose your role to get started saving lives'}

@@ -473,7 +473,7 @@ const getDonorRules = (req, res) => {
  */
 const sendVerificationOtp = async (req, res) => {
   try {
-    const { contactType } = req.body;
+    const { contactType = 'email' } = req.body;
     if (!['email', 'phone'].includes(contactType)) {
       return res.status(400).json({ message: 'Invalid contact type. Must be email or phone.' });
     }
@@ -622,7 +622,7 @@ const sendVerificationOtp = async (req, res) => {
  */
 const verifyOtp = async (req, res) => {
   try {
-    const { contactType, otp } = req.body;
+    const { contactType = 'email', otp } = req.body;
     if (!['email', 'phone'].includes(contactType)) {
       return res.status(400).json({ message: 'Invalid contact type. Must be email or phone.' });
     }
@@ -693,8 +693,8 @@ const verifyOtp = async (req, res) => {
       user.phoneVerified = true;
     }
 
-    // Both must be verified before account is fully verified
-    const isFullyVerified = Boolean(user.emailVerified && user.phoneVerified);
+    // Email verification fully verifies the account
+    const isFullyVerified = Boolean(user.emailVerified);
     if (isFullyVerified) {
       user.verified = true;
     }
@@ -748,7 +748,7 @@ const getVerificationStatus = async (req, res) => {
       maskedPhone: maskPhoneNumber(user.phoneFormatted || user.phone),
       emailVerified,
       phoneVerified,
-      isFullyVerified: emailVerified && phoneVerified,
+      isFullyVerified: emailVerified,
       role: user.role,
       providers: {
         emailConfigured: emailStatus.isConfigured,
