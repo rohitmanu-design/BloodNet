@@ -7,6 +7,7 @@ import * as XLSX from 'xlsx';
 import SimpleHospitalReports from '../components/SimpleHospitalReports';
 import GoogleMap from '../components/GoogleMap';
 import LiveTrackingMap from '../components/LiveTrackingMap';
+import { buildDirectionsUrl } from '../utils/mapUtils';
 import {
   BuildingOfficeIcon,
   HeartIcon,
@@ -1683,27 +1684,25 @@ const ModernHospitalDashboard = () => {
                     <div className="p-4 rounded-xl border border-gray-200 bg-gray-50 space-y-2">
                       <div className="flex items-center justify-between">
                         <span className="font-bold text-gray-900 uppercase">Destination & Navigation</span>
-                        {(hospitalTrackingData.requesterLocation?.lat && hospitalTrackingData.requesterLocation?.lng) ? (
-                          <a
-                            href={`https://www.google.com/maps/dir/?api=1&destination=${hospitalTrackingData.requesterLocation.lat},${hospitalTrackingData.requesterLocation.lng}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800 underline"
-                          >
-                            <span>Directions</span>
-                            <ArrowTopRightOnSquareIcon className="h-3.5 w-3.5" />
-                          </a>
-                        ) : hospitalTrackingData.requesterLocation?.address ? (
-                          <a
-                            href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(hospitalTrackingData.requesterLocation.address)}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800 underline"
-                          >
-                            <span>Directions</span>
-                            <ArrowTopRightOnSquareIcon className="h-3.5 w-3.5" />
-                          </a>
-                        ) : null}
+                        {(() => {
+                          const targetNavUrl = buildDirectionsUrl(
+                            hospitalTrackingData.requesterLocation?.lat,
+                            hospitalTrackingData.requesterLocation?.lng,
+                            hospitalTrackingData.requesterLocation?.address
+                          );
+                          if (!targetNavUrl) return null;
+                          return (
+                            <a
+                              href={targetNavUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800 underline"
+                            >
+                              <span>Directions</span>
+                              <ArrowTopRightOnSquareIcon className="h-3.5 w-3.5" />
+                            </a>
+                          );
+                        })()}
                       </div>
                       <p className="text-gray-700 font-medium">
                         📍 {hospitalTrackingData.requesterLocation?.address || 'Patient destination address not provided'}

@@ -5,7 +5,7 @@ const Notification = require('../models/Notification');
 const BloodInventory = require('../models/BloodInventory');
 const InventoryLog = require('../models/InventoryLog');
 const AuditLog = require('../models/AuditLog');
-const { geocodeAddress, reverseGeocode } = require('../utils/geocoder');
+const { geocodeAddress, reverseGeocode, cleanAddressForMaps } = require('../utils/geocoder');
 
 const calculateDistance = (lat1, lon1, lat2, lon2) => {
   const R = 6371;
@@ -657,7 +657,8 @@ const getRequestTracking = async (req, res) => {
       .populate('requesterId', 'name phone email location')
       .populate('donorId', 'name phone bloodGroup')
       .populate('activeDonorId', 'name phone bloodGroup')
-      .populate('hospitalId', 'hospitalName name contactNumber phone location')
+      .populate('hospitalId', 'hospitalName name contactNumber phone location address')
+      .populate('acceptedHospitalInfo.hospitalId', 'hospitalName name contactNumber phone location address')
       .populate('responses.responderId', 'name phone bloodGroup hospitalName contactNumber');
 
     if (!request) {
@@ -745,23 +746,37 @@ const getRequestTracking = async (req, res) => {
     // 2. Hospital information (saved verified address, NOT live moving)
     const hasHospital = request.acceptedHospitalInfo?.hospitalId || request.hospitalId;
     if (hasHospital) {
-      const hosp = request.acceptedHospitalInfo?.hospitalId ? request.acceptedHospitalInfo : request.hospitalId;
-      const hospName = hosp.hospitalName || hosp.name || request.hospitalName || 'Verified Hospital';
-      const hospAddr = hosp.address || hosp.location?.address || '';
-      const hospLat = hosp.lat || hosp.location?.lat || null;
-      const hospLng = hosp.lng || hosp.location?.lng || null;
-      const directionsUrl = (hospLat && hospLng)
+      const hospSub = request.acceptedHospitalInfo || {};
+      const hospUser = (hospSub.hospitalId && typeof hospSub.hospitalId === 'object' ? hospSub.hospitalId : null) ||
+        (request.hospitalId && typeof request.hospitalId === 'object' ? request.hospitalId : null) || {};
+      const hospName = hospSub.hospitalName || hospUser.hospitalName || hospUser.name || request.hospitalName || 'Verified Hospital';
+      const hospAddr = hospSub.address || hospUser.location?.address || hospUser.address || '';
+      let hospLat = hospSub.lat || hospUser.location?.lat || hospUser.lat || null;
+      let hospLng = hospSub.lng || hospUser.location?.lng || hospUser.lng || null;
+
+      if ((!hospLat || !hospLng || (hospLat === 0 && hospLng === 0)) && hospAddr) {
+        try {
+          const geo = await geocodeAddress(hospAddr);
+          if (geo && geo.lat && geo.lng) {
+            hospLat = geo.lat;
+            hospLng = geo.lng;
+          }
+        } catch (e) {}
+      }
+
+      const hasValidCoords = hospLat && hospLng && !isNaN(hospLat) && !isNaN(hospLng) && (hospLat !== 0 || hospLng !== 0);
+      const directionsUrl = hasValidCoords
         ? `https://www.google.com/maps/dir/?api=1&destination=${hospLat},${hospLng}`
-        : (hospAddr ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(hospAddr)}` : null);
+        : (hospAddr ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(cleanAddressForMaps(hospAddr))}` : null);
 
       hospitalInfo = {
-        hospitalId: hosp.hospitalId || hosp._id,
+        hospitalId: hospSub.hospitalId?._id || hospSub.hospitalId || hospUser._id,
         hospitalName: hospName,
         address: hospAddr,
         lat: hospLat,
         lng: hospLng,
-        phone: hosp.phone || hosp.contactNumber || '',
-        acceptedAt: hospAcceptedAt || hosp.acceptedAt || request.responseDate || request.updatedAt,
+        phone: hospSub.phone || hospUser.contactNumber || hospUser.phone || '',
+        acceptedAt: hospAcceptedAt || hospSub.acceptedAt || request.responseDate || request.updatedAt,
         expiresAt: hospitalExp.expiresAt,
         isExpired: hospitalExp.isExpired,
         remainingSeconds: hospitalExp.remainingSeconds,

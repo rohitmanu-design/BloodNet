@@ -5,6 +5,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useNotifications } from '../contexts/NotificationContext';
 import { requestAPI, userAPI, locationAPI } from '../services/api';
 import LiveTrackingMap from '../components/LiveTrackingMap';
+import { buildDirectionsUrl } from '../utils/mapUtils';
 import { 
   HeartIcon, 
   MapPinIcon, 
@@ -1050,17 +1051,25 @@ const RecipientDashboard = () => {
                                       Accepted: {new Date(trackingData.hospitalInfo.acceptedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                     </p>
                                   )}
-                                  {trackingData.hospitalInfo.directionsUrl && (
-                                    <a
-                                      href={trackingData.hospitalInfo.directionsUrl}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:text-blue-900 mt-2 underline"
-                                    >
-                                      <span>Get Directions on Google Maps</span>
-                                      <ArrowTopRightOnSquareIcon className="h-3.5 w-3.5" />
-                                    </a>
-                                  )}
+                                  {(() => {
+                                    const dirUrl = buildDirectionsUrl(
+                                      trackingData.hospitalInfo.lat,
+                                      trackingData.hospitalInfo.lng,
+                                      trackingData.hospitalInfo.address
+                                    ) || trackingData.hospitalInfo.directionsUrl;
+                                    if (!dirUrl) return null;
+                                    return (
+                                      <a
+                                        href={dirUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:text-blue-900 mt-2 underline"
+                                      >
+                                        <span>Get Directions on Google Maps</span>
+                                        <ArrowTopRightOnSquareIcon className="h-3.5 w-3.5" />
+                                      </a>
+                                    );
+                                  })()}
                                   <p className="text-[10px] text-gray-500 italic mt-1">
                                     Notice: Hospital location reflects the verified medical facility address (not live GPS tracking).
                                   </p>

@@ -7,6 +7,7 @@ import { requestAPI, userAPI, certificateAPI } from '../services/api';
 import Navbar from '../components/Navbar';
 import CertificateGallery from '../components/CertificateGallery';
 import LiveTrackingMap from '../components/LiveTrackingMap';
+import { buildDirectionsUrl } from '../utils/mapUtils';
 import {
   HeartIcon,
   UserGroupIcon,
@@ -827,17 +828,25 @@ const RevolutionaryDonorDashboard = () => {
               </div>
 
               <div className="flex items-center gap-2">
-                {activeDonation.location?.lat && activeDonation.location?.lng && (
-                  <a
-                    href={`https://www.google.com/maps/dir/?api=1&destination=${activeDonation.location.lat},${activeDonation.location.lng}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md transition-colors"
-                  >
-                    <ArrowTopRightOnSquareIcon className="h-4 w-4" />
-                    <span>Turn-by-Turn Navigation</span>
-                  </a>
-                )}
+                {(() => {
+                  const navUrl = buildDirectionsUrl(
+                    activeDonation.location?.lat,
+                    activeDonation.location?.lng,
+                    activeDonation.location?.address
+                  );
+                  if (!navUrl) return null;
+                  return (
+                    <a
+                      href={navUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md transition-colors"
+                    >
+                      <ArrowTopRightOnSquareIcon className="h-4 w-4" />
+                      <span>Turn-by-Turn Navigation</span>
+                    </a>
+                  );
+                })()}
                 <button
                   onClick={handleCompleteActiveDonation}
                   className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md transition-colors"
@@ -1051,18 +1060,26 @@ const RevolutionaryDonorDashboard = () => {
                                   ~{request.approxDistanceKm} km away
                                 </span>
                               )}
-                              {request.location?.address && (
-                                <a
-                                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(request.location.address)}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  onClick={(e) => e.stopPropagation()}
-                                  className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 underline font-medium ml-1"
-                                >
-                                  <span>Map</span>
-                                  <ArrowTopRightOnSquareIcon className="h-3 w-3" />
-                                </a>
-                              )}
+                              {(() => {
+                                const mapLink = buildDirectionsUrl(
+                                  request.location?.lat,
+                                  request.location?.lng,
+                                  request.location?.address
+                                );
+                                if (!mapLink) return null;
+                                return (
+                                  <a
+                                    href={mapLink}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 underline font-medium ml-1"
+                                  >
+                                    <span>Map</span>
+                                    <ArrowTopRightOnSquareIcon className="h-3 w-3" />
+                                  </a>
+                                );
+                              })()}
                             </div>
                             <p className="flex items-center">
                               <ClockIcon className="h-4 w-4 mr-2 text-green-500" />

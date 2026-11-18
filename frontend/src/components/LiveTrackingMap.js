@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { locationAPI } from '../services/api';
+import { buildDirectionsUrl, cleanAddressForMaps } from '../utils/mapUtils';
 import {
   MapPinIcon,
   ShieldCheckIcon,
@@ -250,7 +251,14 @@ const LiveTrackingMap = ({
         reqLng = resolvedCoords[reqAddr].lng;
       }
 
-      if (!isNaN(reqLat) && !isNaN(reqLng) && (reqLat !== 0 || reqLng !== 0)) {
+      const hasReqCoords = !isNaN(reqLat) && !isNaN(reqLng) && (reqLat !== 0 || reqLng !== 0);
+      const reqDirectionsUrl = buildDirectionsUrl(
+        hasReqCoords ? reqLat : null,
+        hasReqCoords ? reqLng : null,
+        reqAddr
+      );
+
+      if (hasReqCoords) {
         pts.push({
           type: 'recipient',
           title: 'Recipient Destination',
@@ -261,7 +269,7 @@ const LiveTrackingMap = ({
           lastUpdated: requesterLocation?.lastUpdated,
           color: '#EF4444',
           iconLetter: '♥',
-          directionsUrl: `https://www.google.com/maps/dir/?api=1&destination=${reqLat},${reqLng}`
+          directionsUrl: reqDirectionsUrl
         });
       } else if (reqAddr) {
         pts.push({
@@ -274,7 +282,7 @@ const LiveTrackingMap = ({
           lastUpdated: requesterLocation?.lastUpdated,
           color: '#EF4444',
           iconLetter: '♥',
-          directionsUrl: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(reqAddr)}`
+          directionsUrl: reqDirectionsUrl
         });
       }
     }
@@ -288,7 +296,14 @@ const LiveTrackingMap = ({
       hospLng = resolvedCoords[hospAddr].lng;
     }
 
-    if (!isNaN(hospLat) && !isNaN(hospLng) && (hospLat !== 0 || hospLng !== 0)) {
+    const hasHospCoords = !isNaN(hospLat) && !isNaN(hospLng) && (hospLat !== 0 || hospLng !== 0);
+    const hospDirectionsUrl = buildDirectionsUrl(
+      hasHospCoords ? hospLat : null,
+      hasHospCoords ? hospLng : null,
+      hospAddr
+    ) || (hospitalInfo?.directionsUrl && !hospitalInfo.directionsUrl.includes('BSNL') ? hospitalInfo.directionsUrl : null);
+
+    if (hasHospCoords) {
       pts.push({
         type: 'hospital',
         title: hospitalInfo?.hospitalName || 'Accepted Hospital',
@@ -296,7 +311,7 @@ const LiveTrackingMap = ({
         lng: hospLng,
         address: hospAddr || 'Medical Facility',
         verified: true,
-        directionsUrl: hospitalInfo?.directionsUrl || `https://www.google.com/maps/dir/?api=1&destination=${hospLat},${hospLng}`,
+        directionsUrl: hospDirectionsUrl,
         color: '#2563EB',
         iconLetter: 'H'
       });
@@ -308,7 +323,7 @@ const LiveTrackingMap = ({
         lng: null,
         address: hospAddr,
         verified: true,
-        directionsUrl: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(hospAddr)}`,
+        directionsUrl: hospDirectionsUrl,
         color: '#2563EB',
         iconLetter: 'H'
       });
@@ -329,7 +344,7 @@ const LiveTrackingMap = ({
           lastUpdated: donorInfo?.currentLocation?.lastUpdated,
           color: '#059669',
           iconLetter: 'D',
-          directionsUrl: `https://www.google.com/maps/dir/?api=1&destination=${donorLat},${donorLng}`
+          directionsUrl: buildDirectionsUrl(donorLat, donorLng, donorInfo?.currentLocation?.address)
         });
       }
     }
@@ -505,17 +520,22 @@ const LiveTrackingMap = ({
 
         {/* Action Controls */}
         <div className="flex items-center space-x-2">
-          {hospitalInfo?.directionsUrl && (
-            <a
-              href={hospitalInfo.directionsUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-semibold bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors"
-            >
-              <ArrowTopRightOnSquareIcon className="w-3.5 h-3.5 mr-1" />
-              Hospital Directions
-            </a>
-          )}
+          {(() => {
+            const hospPt = points.find(p => p.type === 'hospital');
+            const targetUrl = hospPt?.directionsUrl || buildDirectionsUrl(hospitalInfo?.lat, hospitalInfo?.lng, hospitalInfo?.address) || hospitalInfo?.directionsUrl;
+            if (!targetUrl) return null;
+            return (
+              <a
+                href={targetUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-semibold bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors"
+              >
+                <ArrowTopRightOnSquareIcon className="w-3.5 h-3.5 mr-1" />
+                Hospital Directions
+              </a>
+            );
+          })()}
         </div>
       </div>
 

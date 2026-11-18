@@ -38,6 +38,43 @@ function fetchJson(url) {
 }
 
 /**
+ * Sanitize address strings for Google Maps routing.
+ * Strips corrupted or concatenated landmark tokens and extracts clean city/district/pincode.
+ * @param {string} addr
+ * @returns {string}
+ */
+function cleanAddressForMaps(addr) {
+  if (!addr || typeof addr !== 'string') return '';
+  const trimmed = addr.trim();
+
+  // If already clean (no all-caps tokens > 5 chars, no ultra-long tokens > 22 chars), return trimmed
+  const hasNoisyTokens = /\b[A-Z]{6,}\b/.test(trimmed) || trimmed.split(/[\s,]+/).some(t => t.length > 22);
+  if (!hasNoisyTokens) {
+    return trimmed;
+  }
+
+  // Address has noisy/corrupted tokens. Clean it using trailing postal segments.
+  const parts = trimmed.split(',').map(p => p.trim()).filter(Boolean);
+  if (parts.length >= 2) {
+    const pinPartIdx = parts.findIndex(p => /\b\d{6}\b/.test(p));
+    if (pinPartIdx !== -1) {
+      const startIdx = Math.max(0, pinPartIdx - 2);
+      const cleanParts = parts.slice(startIdx, pinPartIdx + 1)
+        .filter(p => !/[A-Z]{6,}/.test(p) && p.length < 35);
+      if (cleanParts.length >= 2) {
+        return cleanParts.join(', ');
+      }
+    }
+  }
+
+  return trimmed
+    .split(/[\s,]+/)
+    .filter(token => token.length < 18 && !/[A-Z]{6,}/.test(token))
+    .join(' ')
+    .trim();
+}
+
+/**
  * Geocode an address to latitude and longitude
  * @param {string} address - Freeform address string
  * @returns {Promise<{lat: number, lng: number, displayName: string}|null>}
@@ -54,7 +91,7 @@ async function geocodeAddress(address) {
   }
 
   const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(clean)}&format=json&limit=1`;
-  const data = await fetchJson(url);
+  let data = await fetchJson(url);
 
   if (Array.isArray(data) && data.length > 0 && data[0].lat && data[0].lon) {
     const result = {
@@ -64,6 +101,22 @@ async function geocodeAddress(address) {
     };
     geocodeCache.set(cacheKey, result);
     return result;
+  }
+
+  // Fallback: If address has corrupted/noisy tokens, sanitize and retry
+  const sanitized = cleanAddressForMaps(clean);
+  if (sanitized && sanitized !== clean) {
+    const fallbackUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(sanitized)}&format=json&limit=1`;
+    data = await fetchJson(fallbackUrl);
+    if (Array.isArray(data) && data.length > 0 && data[0].lat && data[0].lon) {
+      const result = {
+        lat: parseFloat(data[0].lat),
+        lng: parseFloat(data[0].lon),
+        displayName: data[0].display_name
+      };
+      geocodeCache.set(cacheKey, result);
+      return result;
+    }
   }
 
   return null;
@@ -105,5 +158,6 @@ async function reverseGeocode(lat, lng) {
 
 module.exports = {
   geocodeAddress,
-  reverseGeocode
+  reverseGeocode,
+  cleanAddressForMaps
 };
