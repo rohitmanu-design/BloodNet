@@ -529,10 +529,10 @@ const LiveTrackingMap = ({
                 href={targetUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-semibold bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 shadow-sm transition-colors"
               >
-                <ArrowTopRightOnSquareIcon className="w-3.5 h-3.5 mr-1" />
-                Hospital Directions
+                <ArrowTopRightOnSquareIcon className="w-3.5 h-3.5" />
+                <span>Hospital Directions</span>
               </a>
             );
           })()}
@@ -540,7 +540,7 @@ const LiveTrackingMap = ({
       </div>
 
       {/* Quick Location Cards on top */}
-      <div className="p-3 bg-gray-50 border-b border-gray-200 flex flex-wrap gap-2 text-xs">
+      <div className="p-3 bg-gray-50/80 border-b border-gray-200 flex flex-col sm:flex-row flex-wrap gap-2 text-xs">
         {hasExpired ? (
           <div className="flex items-center space-x-2 text-rose-700 font-semibold px-2 py-1">
             <LockClosedIcon className="w-4 h-4" />
@@ -550,24 +550,37 @@ const LiveTrackingMap = ({
           points.map((pt) => (
             <div
               key={pt.type}
-              className="flex items-center space-x-2 bg-white px-3 py-2 rounded-xl border border-gray-200 shadow-2xs"
+              className="flex items-center justify-between gap-3 bg-white px-3.5 py-2.5 rounded-xl border border-gray-200 shadow-2xs flex-1 min-w-[280px]"
             >
-              <span
-                className="w-3 h-3 rounded-full flex-shrink-0"
-                style={{ backgroundColor: pt.color }}
-              />
-              <div>
-                <span className="font-bold text-gray-900 mr-1">{pt.title}:</span>
-                <span className="text-gray-700">{pt.address || `${pt.lat?.toFixed(4)}, ${pt.lng?.toFixed(4)}`}</span>
+              <div className="flex items-center space-x-2.5 min-w-0 flex-1">
+                <span
+                  className="w-3 h-3 rounded-full shrink-0"
+                  style={{ backgroundColor: pt.color }}
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="font-bold text-gray-900">{pt.title}:</span>
+                    {pt.verified && (
+                      <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-100">
+                        Verified
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-gray-600 text-xs mt-0.5 break-words line-clamp-2" title={pt.address}>
+                    {pt.address || `${pt.lat?.toFixed(4)}, ${pt.lng?.toFixed(4)}`}
+                  </p>
+                </div>
               </div>
               {pt.directionsUrl && (
                 <a
                   href={pt.directionsUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-blue-600 hover:underline font-semibold ml-1 flex items-center"
+                  className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 hover:text-blue-800 border border-blue-200/80 transition-colors shrink-0 shadow-2xs ml-auto"
+                  title={`Open Google Maps directions to ${pt.title}`}
                 >
-                  Nav <ArrowTopRightOnSquareIcon className="w-3 h-3 ml-0.5" />
+                  <span>Get Directions</span>
+                  <ArrowTopRightOnSquareIcon className="w-3.5 h-3.5 text-blue-600" />
                 </a>
               )}
             </div>
