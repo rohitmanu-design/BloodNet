@@ -106,8 +106,8 @@ const donorValidation = [
     .withMessage(`Donor weight must be at least ${DONOR_SCREENING_RULES.MIN_WEIGHT_KG} kg`),
   body('donorHealthDetails.hemoglobin').isFloat({ min: DONOR_SCREENING_RULES.MIN_HEMOGLOBIN_GDL })
     .withMessage(`Donor hemoglobin must be at least ${DONOR_SCREENING_RULES.MIN_HEMOGLOBIN_GDL} g/dL`),
-  body('donorHealthDetails.age').isInt({ min: DONOR_SCREENING_RULES.MIN_AGE_YEARS })
-    .withMessage(`Donor must be at least ${DONOR_SCREENING_RULES.MIN_AGE_YEARS} years old`),
+  body('donorHealthDetails.age').isInt({ min: DONOR_SCREENING_RULES.MIN_AGE_YEARS, max: DONOR_SCREENING_RULES.MAX_AGE_YEARS })
+    .withMessage(`Donor age must be between ${DONOR_SCREENING_RULES.MIN_AGE_YEARS} and ${DONOR_SCREENING_RULES.MAX_AGE_YEARS} years`),
   body().custom((body) => {
     if (!body.name && !body.firstName) {
       throw new Error('First name is required for donor registration');
