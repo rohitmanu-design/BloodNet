@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { adminAPI } from '../services/api';
 import { 
@@ -28,6 +28,11 @@ import { HeartIcon as HeartSolidIcon, ShieldCheckIcon as ShieldSolidIcon } from 
 const AdminDashboard = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const isNewUser = Boolean(
+    location.state?.isNewUser ??
+    (sessionStorage.getItem('bloodnet_just_registered') === 'true' || user?.isNewUser === true)
+  );
   const [activeTab, setActiveTab] = useState('dashboard');
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
@@ -396,7 +401,7 @@ const AdminDashboard = () => {
             animate={{ opacity: 1, scale: 1 }}
             className="text-3xl sm:text-5xl font-black text-rose-600 tracking-tight flex items-center justify-center gap-2"
           >
-            Welcome Back, {user?.name || 'Rohit S. Sanas'}! <span className="text-3xl animate-bounce">💥</span>
+            {isNewUser ? `Welcome, ${user?.name || 'Administrator'}!` : `Welcome Back, ${user?.name || 'Rohit S. Sanas'}!`} <span className="text-3xl animate-bounce">💥</span>
           </motion.h1>
           <p className="text-gray-600 text-sm sm:text-base font-medium">
             Managing BloodNet+ platform, live donor directory, and emergency dispatches

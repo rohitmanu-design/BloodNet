@@ -376,7 +376,8 @@ const RegisterPage = () => {
       const response = await register(payload);
       const role = response?.user?.role || selectedRole;
       const targetDashboard = role === 'admin' ? '/admin' : `/dashboard/${role}`;
-      navigate(targetDashboard, { replace: true });
+      sessionStorage.setItem('bloodnet_just_registered', 'true');
+      navigate(targetDashboard, { replace: true, state: { isNewUser: true } });
     } catch (err) {
       const msg = err.response?.data?.message || err.message || 'Registration failed. Please check your inputs.';
       setServerError(msg);

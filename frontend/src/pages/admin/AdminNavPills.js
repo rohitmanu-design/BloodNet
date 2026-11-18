@@ -7,6 +7,10 @@ const AdminNavPills = ({ activeTab }) => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const isNewUser = Boolean(
+    location.state?.isNewUser ??
+    (sessionStorage.getItem('bloodnet_just_registered') === 'true' || user?.isNewUser === true)
+  );
 
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', path: '/admin', emoji: '🏠' },
@@ -28,7 +32,7 @@ const AdminNavPills = ({ activeTab }) => {
           animate={{ opacity: 1, scale: 1 }}
           className="text-3xl sm:text-5xl font-black text-rose-600 tracking-tight flex items-center justify-center gap-2"
         >
-          Welcome Back, {user?.name || "Rohit S. Sanas"}! <span className="text-3xl animate-bounce">💥</span>
+          {isNewUser ? `Welcome, ${user?.name || "Administrator"}!` : `Welcome Back, ${user?.name || "Rohit S. Sanas"}!`} <span className="text-3xl animate-bounce">💥</span>
         </motion.h1>
         <p className="text-gray-600 text-sm sm:text-base font-medium mt-2">
           BloodNet+ Platform Control & Administration Center

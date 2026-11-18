@@ -138,6 +138,18 @@ const userSchema = new mongoose.Schema({
   emailVerificationToken: {
     type: String
   },
+  loginCount: {
+    type: Number,
+    default: 0
+  },
+  lastLoginAt: {
+    type: Date,
+    default: null
+  },
+  isNewUser: {
+    type: Boolean,
+    default: true
+  },
   certificates: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Certificate'

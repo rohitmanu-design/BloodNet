@@ -112,7 +112,8 @@ const LoginPage = () => {
         targetDashboard = `/dashboard/${role}`;
       }
 
-      navigate(targetDashboard, { replace: true });
+      sessionStorage.removeItem('bloodnet_just_registered');
+      navigate(targetDashboard, { replace: true, state: { isNewUser: false } });
     } catch (err) {
       // Error message is caught and managed in AuthContext
     }

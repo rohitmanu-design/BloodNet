@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
 import { motion, AnimatePresence, useScroll, useTransform, useSpring } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
 import { useNotifications } from '../contexts/NotificationContext';
@@ -42,6 +43,18 @@ import { HeartIcon as HeartSolidIcon, FireIcon as FireSolidIcon } from '@heroico
 
 const RevolutionaryDonorDashboard = () => {
   const { user } = useAuth();
+  const location = useLocation();
+  const isNewUser = Boolean(
+    location.state?.isNewUser ??
+    (sessionStorage.getItem('bloodnet_just_registered') === 'true' || user?.isNewUser === true)
+  );
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      sessionStorage.removeItem('bloodnet_just_registered');
+    }, 10000);
+    return () => clearTimeout(timer);
+  }, []);
   const { notifications, showNotification, newBloodRequest } = useNotifications();
   
   // Fallback notification function if context is not available
@@ -514,9 +527,11 @@ const RevolutionaryDonorDashboard = () => {
             transition={{ duration: 0.8 }}
           >
             <h1 className="text-5xl font-bold mb-4 bg-gradient-to-r from-red-600 to-pink-600 bg-clip-text text-transparent">
-              Welcome Back, {user?.name?.split(' ')[0]}! 🌟
+              {isNewUser ? `Welcome, ${user?.name?.split(' ')[0]}! 🌟` : `Welcome Back, ${user?.name?.split(' ')[0]}! 🌟`}
             </h1>
-            <p className="text-xl text-gray-700 mb-8">Your blood donation journey is saving lives</p>
+            <p className="text-xl text-gray-700 mb-8">
+              {isNewUser ? 'Thank you for joining our community of life-saving donors' : 'Your blood donation journey is saving lives'}
+            </p>
           </motion.div>
         </motion.section>
 

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
 import { useNotifications } from '../contexts/NotificationContext';
@@ -195,6 +196,18 @@ const RequestForm = ({ onSubmit }) => {
 
 const RecipientDashboard = () => {
   const { user } = useAuth();
+  const location = useLocation();
+  const isNewUser = Boolean(
+    location.state?.isNewUser ??
+    (sessionStorage.getItem('bloodnet_just_registered') === 'true' || user?.isNewUser === true)
+  );
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      sessionStorage.removeItem('bloodnet_just_registered');
+    }, 10000);
+    return () => clearTimeout(timer);
+  }, []);
   const { notifications } = useNotifications();
   const [nearbyDonors, setNearbyDonors] = useState([]);
   const [myRequests, setMyRequests] = useState([]);
@@ -303,15 +316,16 @@ const RecipientDashboard = () => {
                 </div>
               </div>
               <h1 className="text-5xl font-bold text-rose-800 mb-4">
-                Welcome Back, {user.name}!
+                {isNewUser ? `Welcome, ${user.name}!` : `Welcome Back, ${user.name}!`}
               </h1>
               <p className="text-xl text-rose-700 mb-8">
-                Your BloodNet+ Dashboard
+                {isNewUser ? 'Welcome to your BloodNet+ Dashboard' : 'Your BloodNet+ Dashboard'}
               </p>
               <div className="bg-white bg-opacity-60 rounded-2xl p-6 max-w-2xl mx-auto">
                 <p className="text-rose-800 text-lg leading-relaxed">
-                  Manage your blood requests, connect with nearby donors, and save lives. 
-                  Together, we're building a community of hope and support.
+                  {isNewUser
+                    ? "Thank you for joining BloodNet+! Manage your blood requests, connect with nearby donors, and save lives. Together, we're building a community of hope and support."
+                    : "Manage your blood requests, connect with nearby donors, and save lives. Together, we're building a community of hope and support."}
                 </p>
               </div>
             </motion.div>

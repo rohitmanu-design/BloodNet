@@ -108,6 +108,9 @@ const register = async (req, res) => {
       phoneVerified: false,
       verified: isPreVerified,
       status: (role === 'hospital' ? 'pending' : (isPreVerified ? 'active' : 'pending')),
+      loginCount: 1,
+      lastLoginAt: new Date(),
+      isNewUser: true,
       termsConsent: termsConsent !== false,
       address: resolvedAddress,
       city: resolvedCity,
@@ -220,7 +223,9 @@ const register = async (req, res) => {
         status: user.status,
         verified: user.verified,
         emailVerified: user.emailVerified,
-        phoneVerified: user.phoneVerified
+        phoneVerified: user.phoneVerified,
+        isNewUser: true,
+        loginCount: 1
       }
     });
   } catch (error) {
@@ -298,6 +303,16 @@ const login = async (req, res) => {
 
     const token = generateToken(user._id);
 
+    // Update login tracking: returning user logging in with email and password
+    try {
+      user.loginCount = (user.loginCount || 0) + 1;
+      user.lastLoginAt = new Date();
+      user.isNewUser = false;
+      await user.save();
+    } catch (saveErr) {
+      console.warn('[AUTH] Could not update login tracking:', saveErr.message);
+    }
+
     try {
       await AuditLog.create({
         action: 'login_success',
@@ -334,6 +349,8 @@ const login = async (req, res) => {
         verified: user.verified,
         emailVerified: user.emailVerified,
         phoneVerified: user.phoneVerified,
+        isNewUser: false,
+        loginCount: user.loginCount,
         lastDonation: user.lastDonation
       }
     });
