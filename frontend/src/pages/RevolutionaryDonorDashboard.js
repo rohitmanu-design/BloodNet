@@ -6,6 +6,7 @@ import { useNotifications } from '../contexts/NotificationContext';
 import { requestAPI, userAPI, certificateAPI } from '../services/api';
 import Navbar from '../components/Navbar';
 import CertificateGallery from '../components/CertificateGallery';
+import LiveTrackingMap from '../components/LiveTrackingMap';
 import {
   HeartIcon,
   UserGroupIcon,
@@ -37,7 +38,10 @@ import {
   XMarkIcon,
   ShieldCheckIcon,
   PhotoIcon,
-  MapIcon
+  MapIcon,
+  PauseIcon,
+  PlayIcon,
+  ArrowTopRightOnSquareIcon
 } from '@heroicons/react/24/outline';
 import { HeartIcon as HeartSolidIcon, FireIcon as FireSolidIcon } from '@heroicons/react/24/solid';
 
@@ -55,12 +59,29 @@ const RevolutionaryDonorDashboard = () => {
     }, 10000);
     return () => clearTimeout(timer);
   }, []);
-  const { notifications, showNotification, newBloodRequest } = useNotifications();
+  const { notifications, showNotification, newBloodRequest, socket } = useNotifications();
   
+  // Real-time donation coordination & live GPS tracking
+  const [pendingAcceptRequest, setPendingAcceptRequest] = useState(null);
+  const [acceptConsentShareLocation, setAcceptConsentShareLocation] = useState(true);
+  const [acceptingInProgress, setAcceptingInProgress] = useState(false);
+  const [activeDonation, setActiveDonation] = useState(() => {
+    try {
+      const saved = localStorage.getItem('bloodnet_active_donation');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [activeDonationTracking, setActiveDonationTracking] = useState(null);
+  const [donorCoords, setDonorCoords] = useState(null);
+  const [donorTrackingStatus, setDonorTrackingStatus] = useState('active');
+  const watchIdRef = useRef(null);
+  const lastBroadcastTimeRef = useRef(0);
+
   // Fallback notification function if context is not available
   const fallbackNotification = (message, type = 'info') => {
     console.log(`[${type.toUpperCase()}] ${message}`);
-    // You could also implement a toast notification here if needed
   };
   
   const notify = showNotification || fallbackNotification;
@@ -275,37 +296,186 @@ const RevolutionaryDonorDashboard = () => {
     setCurrentStreak(Math.min(completedDonations.length, 5));
   };
 
-  const handleAcceptRequest = async (requestId) => {
+  const initiateAcceptRequest = (request) => {
+    setPendingAcceptRequest(request);
+    setAcceptConsentShareLocation(true);
+  };
+
+  const confirmAcceptRequest = async () => {
+    if (!pendingAcceptRequest) return;
+    setAcceptingInProgress(true);
     try {
-      console.log('Accepting request:', requestId);
+      let initialCoords = null;
+      if (acceptConsentShareLocation && navigator.geolocation) {
+        try {
+          const pos = await new Promise((resolve, reject) =>
+            navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 8000 })
+          );
+          initialCoords = {
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+            accuracy: Math.round(pos.coords.accuracy),
+            lastUpdated: new Date().toISOString()
+          };
+          setDonorCoords(initialCoords);
+        } catch (posErr) {
+          console.warn('Initial geolocation warning:', posErr.message);
+        }
+      }
+
+      await requestAPI.respondToRequest(pendingAcceptRequest._id, {
+        response: 'accepted',
+        shareLocation: acceptConsentShareLocation,
+        currentLocation: initialCoords
+      });
+
+      const newActive = {
+        _id: pendingAcceptRequest._id,
+        bloodGroup: pendingAcceptRequest.bloodGroup,
+        unitsNeeded: pendingAcceptRequest.unitsNeeded,
+        recipientName: pendingAcceptRequest.recipientName || 'Recipient',
+        location: pendingAcceptRequest.location,
+        shareLocation: acceptConsentShareLocation
+      };
+      setActiveDonation(newActive);
+      localStorage.setItem('bloodnet_active_donation', JSON.stringify(newActive));
+
+      // Remove from nearby requests list immediately
+      setNearbyRequests(prev => prev.filter(req => req._id !== pendingAcceptRequest._id));
+
+      socket?.emit('joinTrackingRoom', { requestId: pendingAcceptRequest._id, userId: user?._id || user?.id });
+      notify('✅ Blood request accepted! You are now connected with the recipient.', 'success');
       
-      // First, respond to the request
-      const response = await requestAPI.respondToRequest(requestId, { response: 'accepted' });
-      console.log('Request response:', response.data);
-      
-      // Remove from local state immediately for better UX
-      setNearbyRequests(prev => prev.filter(req => req._id !== requestId));
-      
-      // Show immediate success feedback
-      notify('✅ Request accepted! Thank you for your donation.', 'success');
-      
-      // Try to generate certificate (non-blocking)
       try {
-        await certificateAPI.generateCertificate(requestId);
+        await certificateAPI.generateCertificate(pendingAcceptRequest._id);
         notify('🏆 Certificate generated! Check your Certificates tab.', 'success');
       } catch (certError) {
         console.warn('Certificate generation failed:', certError.message);
-        // Don't show error to user, just log it
       }
-      
-      // Refresh dashboard data to get updated stats
-      setTimeout(() => {
+
+      // Load initial tracking record
+      try {
+        const trRes = await requestAPI.getRequestTracking(pendingAcceptRequest._id);
+        setActiveDonationTracking(trRes.data.tracking);
+      } catch (trErr) {
+        console.warn('Failed to load tracking data:', trErr.message);
+      }
+
+      setPendingAcceptRequest(null);
+      fetchDashboardData();
+    } catch (err) {
+      console.error('Failed to accept request:', err);
+      notify(err.response?.data?.message || 'Failed to accept request', 'error');
+    } finally {
+      setAcceptingInProgress(false);
+    }
+  };
+
+  // Live GPS broadcaster for active donation while tab is open
+  useEffect(() => {
+    if (!activeDonation || !activeDonation.shareLocation || donorTrackingStatus !== 'active') {
+      if (watchIdRef.current !== null && navigator.geolocation) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
+      }
+      return;
+    }
+
+    if (!navigator.geolocation) {
+      console.warn('Geolocation not supported on this browser');
+      return;
+    }
+
+    socket?.emit('joinTrackingRoom', { requestId: activeDonation._id, userId: user?._id || user?.id });
+
+    const refreshTracking = async () => {
+      try {
+        const res = await requestAPI.getRequestTracking(activeDonation._id);
+        setActiveDonationTracking(res.data.tracking);
+      } catch (err) {
+        console.warn('Tracking fetch error:', err.message);
+      }
+    };
+    refreshTracking();
+
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      (pos) => {
+        const { latitude, longitude, accuracy } = pos.coords;
+        const now = Date.now();
+        const updatedCoords = {
+          lat: latitude,
+          lng: longitude,
+          accuracy: Math.round(accuracy),
+          lastUpdated: new Date().toISOString()
+        };
+        setDonorCoords(updatedCoords);
+
+        // Throttle updates: send at most once every 15 seconds
+        if (now - lastBroadcastTimeRef.current >= 15000) {
+          lastBroadcastTimeRef.current = now;
+          requestAPI.updateLocation(activeDonation._id, {
+            lat: latitude,
+            lng: longitude,
+            accuracy: Math.round(accuracy)
+          }).catch(err => console.warn('Broadcast location err:', err.message));
+        }
+      },
+      (err) => {
+        console.warn('Geolocation watch error:', err.message);
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
+    );
+
+    const onTrackingStopped = (payload) => {
+      if (payload.requestId === activeDonation._id) {
+        notify('Donor coordination for this request has concluded.', 'info');
+        setActiveDonation(null);
+        localStorage.removeItem('bloodnet_active_donation');
+        if (watchIdRef.current !== null) {
+          navigator.geolocation.clearWatch(watchIdRef.current);
+          watchIdRef.current = null;
+        }
         fetchDashboardData();
-      }, 1000);
-      
-    } catch (error) {
-      console.error('Error accepting request:', error);
-      notify('Failed to accept request. Please try again.', 'error');
+      }
+    };
+
+    socket?.on('trackingStopped', onTrackingStopped);
+
+    return () => {
+      if (watchIdRef.current !== null && navigator.geolocation) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
+      }
+      socket?.off('trackingStopped', onTrackingStopped);
+    };
+  }, [activeDonation, donorTrackingStatus, socket, user]);
+
+  const handleToggleDonorLocation = async () => {
+    if (!activeDonation) return;
+    const nextStatus = donorTrackingStatus === 'active' ? 'paused' : 'active';
+    try {
+      await requestAPI.updateLocationConsent(activeDonation._id, {
+        shareLocation: nextStatus === 'active',
+        trackingStatus: nextStatus
+      });
+      setDonorTrackingStatus(nextStatus);
+      notify(nextStatus === 'active' ? 'Live location sharing resumed' : 'Live location sharing paused', 'info');
+    } catch (err) {
+      console.error('Failed to toggle location:', err);
+    }
+  };
+
+  const handleCompleteActiveDonation = async () => {
+    if (!activeDonation) return;
+    if (!window.confirm('Have you arrived and completed the blood donation? This will close location tracking.')) return;
+    try {
+      await requestAPI.updateRequestStatus(activeDonation._id, 'completed');
+      setActiveDonation(null);
+      localStorage.removeItem('bloodnet_active_donation');
+      notify('🎉 Thank you for saving a life! Donation completed.', 'success');
+      fetchDashboardData();
+    } catch (err) {
+      console.error('Failed to complete donation:', err);
     }
   };
 
@@ -559,6 +729,115 @@ const RevolutionaryDonorDashboard = () => {
           </div>
         </motion.div>
 
+        {/* Active Donation Tracking Card */}
+        {activeDonation && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-8 p-6 bg-gradient-to-br from-emerald-50 via-white to-blue-50 border-2 border-emerald-300 rounded-3xl shadow-xl"
+          >
+            <div className="flex flex-col md:flex-row items-start md:items-center justify-between pb-4 border-b border-emerald-100 gap-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="w-3 h-3 rounded-full bg-emerald-500 animate-ping"></span>
+                  <span className="text-xs font-bold uppercase tracking-wider text-emerald-800">
+                    Active Emergency Donation En Route
+                  </span>
+                  <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-rose-100 text-rose-800">
+                    {activeDonation.bloodGroup} • {activeDonation.unitsNeeded} Units
+                  </span>
+                </div>
+                <h3 className="text-xl font-bold text-gray-900 mt-1">
+                  Destination: {activeDonation.location?.address || 'Medical Facility'}
+                </h3>
+                <p className="text-xs text-gray-600 mt-0.5">
+                  Coordinating directly with: <span className="font-semibold text-gray-800">{activeDonation.recipientName || 'Recipient'}</span>
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {activeDonation.location?.lat && activeDonation.location?.lng && (
+                  <a
+                    href={`https://www.google.com/maps/dir/?api=1&destination=${activeDonation.location.lat},${activeDonation.location.lng}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md transition-colors"
+                  >
+                    <ArrowTopRightOnSquareIcon className="h-4 w-4" />
+                    <span>Turn-by-Turn Navigation</span>
+                  </a>
+                )}
+                <button
+                  onClick={handleCompleteActiveDonation}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md transition-colors"
+                >
+                  Arrived & Fulfilled
+                </button>
+              </div>
+            </div>
+
+            {/* Live GPS Broadcast Status & Map */}
+            <div className="mt-4 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-white/80 rounded-xl border border-emerald-200 text-xs">
+                <div className="flex items-center gap-2">
+                  {activeDonation.shareLocation ? (
+                    donorTrackingStatus === 'active' ? (
+                      <span className="text-emerald-700 font-semibold flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                        Live GPS Broadcasting Active {donorCoords?.accuracy ? `(±${donorCoords.accuracy}m)` : ''}
+                      </span>
+                    ) : (
+                      <span className="text-amber-700 font-semibold flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                        Location Sharing Paused by You
+                      </span>
+                    )
+                  ) : (
+                    <span className="text-gray-500 font-medium">Location Sharing Disabled for this request</span>
+                  )}
+                  <span className="text-gray-400">•</span>
+                  <span className="text-gray-500 text-[11px]">
+                    Transmitted securely while tab is open. Background tracking does not run when closed.
+                  </span>
+                </div>
+
+                {activeDonation.shareLocation && (
+                  <button
+                    onClick={handleToggleDonorLocation}
+                    className={`px-3 py-1 rounded-lg border font-semibold text-xs flex items-center gap-1 transition-colors ${
+                      donorTrackingStatus === 'active'
+                        ? 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'
+                        : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
+                    }`}
+                  >
+                    {donorTrackingStatus === 'active' ? <PauseIcon className="h-3.5 w-3.5" /> : <PlayIcon className="h-3.5 w-3.5" />}
+                    <span>{donorTrackingStatus === 'active' ? 'Pause Sharing' : 'Resume Sharing'}</span>
+                  </button>
+                )}
+              </div>
+
+              {/* Embedded Live Map */}
+              <div className="rounded-2xl overflow-hidden border border-gray-200 shadow-sm">
+                <LiveTrackingMap
+                  requestId={activeDonation._id}
+                  requesterLocation={activeDonationTracking?.requesterLocation || activeDonation.location}
+                  hospitalInfo={activeDonationTracking?.hospitalInfo}
+                  donorInfo={{
+                    name: user?.name,
+                    phone: user?.phone,
+                    bloodGroup: user?.bloodGroup,
+                    currentLocation: donorCoords,
+                    trackingStatus: donorTrackingStatus,
+                    shareLocation: activeDonation.shareLocation
+                  }}
+                  myRole="donor"
+                  height="380px"
+                />
+              </div>
+            </div>
+          </motion.div>
+        )}
+
         {/* Content Sections */}
         <AnimatePresence mode="wait">
           {/* Impact Section */}
@@ -703,7 +982,7 @@ const RevolutionaryDonorDashboard = () => {
                         <motion.button
                           whileHover={{ scale: 1.05 }}
                           whileTap={{ scale: 0.95 }}
-                          onClick={() => handleAcceptRequest(request._id)}
+                          onClick={() => initiateAcceptRequest(request)}
                           className="flex-1 bg-gradient-to-r from-green-500 to-green-600 text-white py-3 rounded-xl font-medium shadow-lg"
                         >
                           <HeartSolidIcon className="h-5 w-5 inline mr-2" />
@@ -1424,6 +1703,95 @@ const RevolutionaryDonorDashboard = () => {
               </div>
               
               <CertificateGallery userId={user?.id} />
+            </motion.div>
+          </motion.div>
+        )}
+
+        {/* Accept Request Confirmation & Location Consent Modal */}
+        {pendingAcceptRequest && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-3xl p-6 md:p-8 max-w-lg w-full shadow-2xl border border-red-100"
+            >
+              <div className="flex items-center justify-between pb-4 border-b border-gray-100">
+                <div className="flex items-center space-x-2">
+                  <HeartSolidIcon className="h-7 w-7 text-red-500 animate-pulse" />
+                  <h3 className="text-xl font-bold text-gray-900">Commit to Donate Blood</h3>
+                </div>
+                <button
+                  onClick={() => setPendingAcceptRequest(null)}
+                  className="text-gray-400 hover:text-gray-600 p-1"
+                >
+                  <XMarkIcon className="h-6 w-6" />
+                </button>
+              </div>
+
+              <div className="py-4 space-y-4">
+                <div className="p-4 bg-red-50 rounded-2xl border border-red-100 space-y-1.5 text-sm">
+                  <div className="flex justify-between font-bold text-gray-900">
+                    <span>Blood Group: {pendingAcceptRequest.bloodGroup}</span>
+                    <span>{pendingAcceptRequest.unitsNeeded} Unit(s) Needed</span>
+                  </div>
+                  <p className="text-gray-700">
+                    📍 <span className="font-semibold">Destination:</span> {pendingAcceptRequest.location?.address || 'Medical Facility'}
+                  </p>
+                  <p className="text-xs text-red-700 font-semibold uppercase">
+                    Urgency: {pendingAcceptRequest.urgency}
+                  </p>
+                </div>
+
+                <div className="p-4 bg-rose-50/70 border border-rose-200 rounded-2xl space-y-2">
+                  <div className="flex items-start gap-2">
+                    <ShieldCheckIcon className="h-5 w-5 text-rose-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-xs font-bold text-rose-900">Live Location Sharing with Recipient</p>
+                      <p className="text-[11px] text-gray-600 mt-0.5">
+                        Helps the recipient monitor your travel in real time. Sent securely while this tab is open.
+                      </p>
+                    </div>
+                  </div>
+
+                  <label className="flex items-center space-x-3 text-xs font-semibold text-gray-800 cursor-pointer pt-1 pl-7">
+                    <input
+                      type="checkbox"
+                      checked={acceptConsentShareLocation}
+                      onChange={(e) => setAcceptConsentShareLocation(e.target.checked)}
+                      className="rounded text-red-600 focus:ring-red-500 h-4 w-4"
+                    />
+                    <span>Share my live location with recipient while traveling</span>
+                  </label>
+                  <p className="text-[10px] text-gray-500 italic pl-7">
+                    You can pause or stop location sharing at any time. Tracking ceases automatically once the request is fulfilled.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex space-x-3 pt-3 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setPendingAcceptRequest(null)}
+                  disabled={acceptingInProgress}
+                  className="flex-1 py-3 px-4 border border-gray-300 rounded-xl text-gray-700 font-semibold hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmAcceptRequest}
+                  disabled={acceptingInProgress}
+                  className="flex-1 py-3 px-4 bg-gradient-to-r from-red-500 to-pink-500 text-white rounded-xl font-bold shadow-lg hover:shadow-xl transition-all disabled:opacity-50"
+                >
+                  {acceptingInProgress ? 'Confirming...' : 'Confirm & Save Life'}
+                </button>
+              </div>
             </motion.div>
           </motion.div>
         )}

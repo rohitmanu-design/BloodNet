@@ -7,7 +7,12 @@ const {
   getNearbyRequests,
   respondToRequest,
   getRequestDetails,
-  deleteRequest
+  deleteRequest,
+  getRequestTracking,
+  updateLocation,
+  updateLocationConsent,
+  selectActiveDonor,
+  updateRequestStatus
 } = require('../controllers/requestController');
 
 const router = express.Router();
@@ -25,14 +30,27 @@ const createRequestValidation = [
 const respondValidation = [
   body('response').isIn(['accepted', 'rejected']).withMessage('Response must be accepted or rejected'),
   body('message').optional().isLength({ max: 500 }).withMessage('Message too long'),
+  body('shareLocation').optional().isBoolean().withMessage('shareLocation must be boolean'),
+];
+
+const locationUpdateValidation = [
+  body('lat').isFloat({ min: -90, max: 90 }).withMessage('Valid latitude required (-90 to 90)'),
+  body('lng').isFloat({ min: -180, max: 180 }).withMessage('Valid longitude required (-180 to 180)'),
+  body('accuracy').optional().isFloat({ min: 0 }).withMessage('Accuracy must be positive'),
 ];
 
 router.post('/', auth, requireVerifiedContact, authorize('recipient', 'hospital'), createRequestValidation, createRequest);
 router.post('/create', auth, requireVerifiedContact, authorize('recipient', 'hospital'), createRequestValidation, createRequest);
 
 router.get('/my', auth, authorize('recipient'), getMyRequests);
-
 router.get('/nearby', auth, authorize('donor', 'hospital'), getNearbyRequests);
+
+// Secure Real-Time Tracking & Consent Endpoints
+router.get('/:requestId/tracking', auth, getRequestTracking);
+router.post('/:requestId/location-update', auth, locationUpdateValidation, updateLocation);
+router.put('/:requestId/location-consent', auth, updateLocationConsent);
+router.put('/:requestId/select-donor', auth, selectActiveDonor);
+router.put('/:requestId/status', auth, updateRequestStatus);
 
 router.put('/:requestId/respond', auth, requireVerifiedContact, authorize('donor', 'hospital'), respondValidation, respondToRequest);
 

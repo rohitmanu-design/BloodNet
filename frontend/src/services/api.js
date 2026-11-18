@@ -105,6 +105,11 @@ export const requestAPI = {
   respondToRequest: (requestId, data) => api.put(`/requests/${requestId}/respond`, data),
   getRequestDetails: (requestId) => api.get(`/requests/${requestId}`),
   deleteRequest: (requestId) => api.delete(`/requests/${requestId}`),
+  getRequestTracking: (requestId) => api.get(`/requests/${requestId}/tracking`),
+  updateLocation: (requestId, data) => api.post(`/requests/${requestId}/location-update`, data),
+  updateLocationConsent: (requestId, data) => api.put(`/requests/${requestId}/location-consent`, data),
+  selectActiveDonor: (requestId, donorId) => api.put(`/requests/${requestId}/select-donor`, { donorId }),
+  updateRequestStatus: (requestId, status) => api.put(`/requests/${requestId}/status`, { status }),
 };
 
 export const hospitalAPI = {

@@ -23,7 +23,7 @@ const requestSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['pending', 'accepted', 'rejected', 'completed'],
+    enum: ['pending', 'accepted', 'rejected', 'completed', 'cancelled'],
     default: 'pending'
   },
   location: {
@@ -38,6 +38,27 @@ const requestSchema = new mongoose.Schema({
     address: {
       type: String,
       required: true
+    },
+    accuracy: {
+      type: Number,
+      default: null
+    },
+    lastUpdated: {
+      type: Date,
+      default: Date.now
+    },
+    shareWithHospitals: {
+      type: Boolean,
+      default: true
+    },
+    shareWithDonors: {
+      type: Boolean,
+      default: true
+    },
+    trackingStatus: {
+      type: String,
+      enum: ['inactive', 'active', 'paused', 'stopped'],
+      default: 'inactive'
     }
   },
   urgency: {
@@ -107,9 +128,51 @@ const requestSchema = new mongoose.Schema({
     timestamp: {
       type: Date,
       default: Date.now
+    },
+    // Donor explicit location sharing preference and location state
+    donorShareLocation: {
+      type: Boolean,
+      default: false
+    },
+    currentLocation: {
+      lat: { type: Number, default: null },
+      lng: { type: Number, default: null },
+      accuracy: { type: Number, default: null },
+      lastUpdated: { type: Date, default: null }
+    },
+    trackingStatus: {
+      type: String,
+      enum: ['inactive', 'active', 'paused', 'stopped'],
+      default: 'inactive'
     }
   }],
+  // Coordinated donor selected by recipient when multiple donors accept
+  activeDonorId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
+  },
+  // Detailed accepted hospital record
+  acceptedHospitalInfo: {
+    hospitalId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null
+    },
+    hospitalName: { type: String, default: '' },
+    address: { type: String, default: '' },
+    lat: { type: Number, default: null },
+    lng: { type: Number, default: null },
+    phone: { type: String, default: '' },
+    acceptedAt: { type: Date, default: null },
+    verified: { type: Boolean, default: true },
+    isLiveLocation: { type: Boolean, default: false } // Hospital is static verified facility
+  },
   completedAt: {
+    type: Date,
+    default: null
+  },
+  cancelledAt: {
     type: Date,
     default: null
   }

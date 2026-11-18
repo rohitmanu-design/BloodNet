@@ -208,8 +208,43 @@ io.on('connection', (socket) => {
   console.log('[SOCKET] Client connected:', socket.id);
 
   socket.on('registerUser', (userId) => {
+    socket.userId = userId;
     connectedUsers.set(userId, socket.id);
     console.log(`[SOCKET] User ${userId} registered with socket ${socket.id}`);
+  });
+
+  // Secure real-time location tracking rooms for emergency requests
+  socket.on('joinTrackingRoom', async (payload) => {
+    const requestId = typeof payload === 'object' ? payload?.requestId : payload;
+    const userId = (typeof payload === 'object' ? payload?.userId : null) || socket.userId;
+    if (!requestId || !userId) return;
+    try {
+      const Request = require('./models/Request');
+      const reqDoc = await Request.findById(requestId);
+      if (!reqDoc) return;
+
+      const isParticipant =
+        reqDoc.requesterId?.toString() === userId?.toString() ||
+        reqDoc.acceptedHospitalInfo?.hospitalId?.toString() === userId?.toString() ||
+        reqDoc.hospitalId?.toString() === userId?.toString() ||
+        reqDoc.responses?.some(r => r.responderId?.toString() === userId?.toString() && r.response === 'accepted');
+
+      if (isParticipant) {
+        socket.join(`request_${requestId}`);
+        console.log(`[SOCKET] Authorized user ${userId} joined tracking room request_${requestId}`);
+      } else {
+        console.warn(`[SOCKET] Unauthorized tracking room join attempt: user ${userId} on request ${requestId}`);
+      }
+    } catch (err) {
+      console.error('[SOCKET] joinTrackingRoom error:', err.message);
+    }
+  });
+
+  socket.on('leaveTrackingRoom', (payload) => {
+    const requestId = typeof payload === 'object' ? payload?.requestId : payload;
+    if (requestId) {
+      socket.leave(`request_${requestId}`);
+    }
   });
 
   socket.on('disconnect', () => {

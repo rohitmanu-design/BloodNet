@@ -6,6 +6,7 @@ import { hospitalAPI, requestAPI } from '../services/api';
 import * as XLSX from 'xlsx';
 import SimpleHospitalReports from '../components/SimpleHospitalReports';
 import GoogleMap from '../components/GoogleMap';
+import LiveTrackingMap from '../components/LiveTrackingMap';
 import {
   BuildingOfficeIcon,
   HeartIcon,
@@ -30,7 +31,9 @@ import {
   XCircleIcon,
   UserCircleIcon,
   CheckCircleIcon,
-  PencilIcon
+  PencilIcon,
+  ArrowTopRightOnSquareIcon,
+  ShieldCheckIcon
 } from '@heroicons/react/24/outline';
 import { HeartIcon as HeartSolidIcon } from '@heroicons/react/24/solid';
 
@@ -56,7 +59,7 @@ const formatRelativeTime = (timestamp) => {
 
 const ModernHospitalDashboard = () => {
   const { user } = useAuth();
-  const { notifications, newBloodRequest, showNotification } = useNotifications();
+  const { notifications, newBloodRequest, showNotification, socket } = useNotifications();
   const [activeSection, setActiveSection] = useState('overview');
   const [inventory, setInventory] = useState([]);
   const [bloodRequests, setBloodRequests] = useState([]);
@@ -70,6 +73,86 @@ const ModernHospitalDashboard = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
   const [editingInventory, setEditingInventory] = useState(null);
+
+  // Real-time location tracking modal state for hospitals
+  const [activeTrackingModalRequest, setActiveTrackingModalRequest] = useState(null);
+  const [hospitalTrackingData, setHospitalTrackingData] = useState(null);
+  const [hospitalTrackingLoading, setHospitalTrackingLoading] = useState(false);
+
+  const handleOpenHospitalTracking = async (request) => {
+    setActiveTrackingModalRequest(request);
+    setHospitalTrackingLoading(true);
+    try {
+      const res = await requestAPI.getRequestTracking(request._id);
+      setHospitalTrackingData(res.data.tracking);
+      socket?.emit('joinTrackingRoom', { requestId: request._id, userId: user?._id || user?.id });
+    } catch (err) {
+      console.error('Failed to load tracking details:', err);
+      showNotification('Failed to load live tracking details', 'error');
+    } finally {
+      setHospitalTrackingLoading(false);
+    }
+  };
+
+  const handleCloseHospitalTracking = () => {
+    if (activeTrackingModalRequest) {
+      socket?.emit('leaveTrackingRoom', { requestId: activeTrackingModalRequest._id });
+    }
+    setActiveTrackingModalRequest(null);
+    setHospitalTrackingData(null);
+  };
+
+  // Real-time location listener for active tracking modal
+  useEffect(() => {
+    if (!socket || !activeTrackingModalRequest) return;
+
+    const handleLocationUpdate = (payload) => {
+      if (payload.requestId === activeTrackingModalRequest._id) {
+        setHospitalTrackingData(prev => {
+          if (!prev) return prev;
+          if (payload.senderRole === 'donor' && payload.location) {
+            return {
+              ...prev,
+              activeDonor: prev.activeDonor ? {
+                ...prev.activeDonor,
+                currentLocation: payload.location,
+                trackingStatus: payload.trackingStatus || prev.activeDonor.trackingStatus
+              } : prev.activeDonor
+            };
+          }
+          if (payload.senderRole === 'recipient' && payload.location) {
+            return {
+              ...prev,
+              requesterLocation: {
+                ...prev.requesterLocation,
+                lat: payload.location.lat,
+                lng: payload.location.lng,
+                accuracy: payload.location.accuracy,
+                lastUpdated: payload.location.lastUpdated
+              }
+            };
+          }
+          return prev;
+        });
+      }
+    };
+
+    const handleTrackingStopped = (payload) => {
+      if (payload.requestId === activeTrackingModalRequest._id) {
+        showNotification('Request has been completed or cancelled.', 'info');
+        setHospitalTrackingData(prev => prev ? { ...prev, status: payload.status, isRequestClosed: true } : prev);
+        fetchDashboardData();
+      }
+    };
+
+    socket.on('locationUpdate', handleLocationUpdate);
+    socket.on('trackingStopped', handleTrackingStopped);
+
+    return () => {
+      socket.off('locationUpdate', handleLocationUpdate);
+      socket.off('trackingStopped', handleTrackingStopped);
+    };
+  }, [socket, activeTrackingModalRequest]);
   const [campForm, setCampForm] = useState({
     name: '',
     date: '',
@@ -1218,9 +1301,18 @@ const ModernHospitalDashboard = () => {
                             </>
                           )}
                           {request.status === 'accepted' && (
-                            <span className="px-3 py-1 bg-green-100 text-green-600 rounded-full text-sm font-medium">
-                              Accepted
-                            </span>
+                            <div className="flex flex-col items-end gap-1.5">
+                              <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-bold border border-green-200">
+                                Accepted
+                              </span>
+                              <button
+                                onClick={() => handleOpenHospitalTracking(request)}
+                                className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors"
+                              >
+                                <MapPinIcon className="h-3.5 w-3.5" />
+                                <span>Live Map & Details</span>
+                              </button>
+                            </div>
                           )}
                           {request.status === 'rejected' && (
                             <span className="px-3 py-1 bg-red-100 text-red-600 rounded-full text-sm font-medium">
@@ -1504,6 +1596,113 @@ const ModernHospitalDashboard = () => {
                 onSubmit={handleProfileUpdate}
                 onCancel={() => setShowProfileModal(false)}
               />
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Live Request Tracking & Coordination Modal for Hospital */}
+      <AnimatePresence>
+        {activeTrackingModalRequest && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-6 overflow-y-auto"
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-2xl p-6 max-w-4xl w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-gray-200"
+            >
+              {/* Header */}
+              <div className="flex items-start justify-between pb-4 border-b border-gray-200">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-xl font-bold text-gray-900">
+                      Emergency Blood Coordination
+                    </h3>
+                    <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-red-100 text-red-800">
+                      {activeTrackingModalRequest.bloodGroup} • {activeTrackingModalRequest.unitsNeeded} Units
+                    </span>
+                    <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 uppercase">
+                      {activeTrackingModalRequest.status}
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Patient: <span className="font-semibold text-gray-800">{activeTrackingModalRequest.recipientName || 'Registered Recipient'}</span>
+                    {activeTrackingModalRequest.contactPhone ? ` • 📞 ${activeTrackingModalRequest.contactPhone}` : ''}
+                  </p>
+                </div>
+                <button
+                  onClick={handleCloseHospitalTracking}
+                  className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors"
+                >
+                  <XMarkIcon className="h-6 w-6" />
+                </button>
+              </div>
+
+              {hospitalTrackingLoading ? (
+                <div className="py-16 text-center">
+                  <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-teal-600 mx-auto mb-3"></div>
+                  <p className="text-sm text-gray-600">Loading secure tracking stream...</p>
+                </div>
+              ) : hospitalTrackingData ? (
+                <div className="mt-4 space-y-5">
+                  {/* Map */}
+                  <div className="rounded-xl overflow-hidden border border-gray-200 shadow-sm">
+                    <LiveTrackingMap
+                      requestId={activeTrackingModalRequest._id}
+                      requesterLocation={hospitalTrackingData.requesterLocation}
+                      hospitalInfo={hospitalTrackingData.hospitalInfo}
+                      donorInfo={hospitalTrackingData.activeDonor}
+                      myRole="hospital"
+                      height="380px"
+                    />
+                  </div>
+
+                  {/* Summary & Facility Notice */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                    <div className="p-4 rounded-xl border border-blue-200 bg-blue-50/60 space-y-1.5">
+                      <div className="flex items-center gap-1.5 font-bold text-blue-900 uppercase">
+                        <BuildingOfficeIcon className="h-4 w-4 text-blue-600" />
+                        <span>Facility Verification</span>
+                      </div>
+                      <p className="font-semibold text-gray-900">{user?.hospitalName || 'Your Hospital Facility'}</p>
+                      <p className="text-gray-600">📍 {user?.address || 'Hospital Address'}</p>
+                      <p className="text-[11px] text-gray-500 italic mt-1">
+                        Notice: Hospital location reflects this facility's verified address.
+                      </p>
+                    </div>
+
+                    <div className="p-4 rounded-xl border border-gray-200 bg-gray-50 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-gray-900 uppercase">Destination & Navigation</span>
+                        {hospitalTrackingData.requesterLocation?.lat && hospitalTrackingData.requesterLocation?.lng && (
+                          <a
+                            href={`https://www.google.com/maps/dir/?api=1&destination=${hospitalTrackingData.requesterLocation.lat},${hospitalTrackingData.requesterLocation.lng}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800 underline"
+                          >
+                            <span>Directions</span>
+                            <ArrowTopRightOnSquareIcon className="h-3.5 w-3.5" />
+                          </a>
+                        )}
+                      </div>
+                      <p className="text-gray-700">
+                        {hospitalTrackingData.requesterLocation?.address || 'Patient destination address not provided'}
+                      </p>
+                      <p className="text-[11px] text-gray-500">
+                        {hospitalTrackingData.requesterLocation
+                          ? 'Patient has consented to share destination location with your facility.'
+                          : 'Patient location sharing is paused or not consented.'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
             </motion.div>
           </motion.div>
         )}
