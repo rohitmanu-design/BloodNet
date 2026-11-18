@@ -1657,6 +1657,10 @@ const ModernHospitalDashboard = () => {
                       requesterLocation={hospitalTrackingData.requesterLocation}
                       hospitalInfo={hospitalTrackingData.hospitalInfo}
                       donorInfo={hospitalTrackingData.activeDonor}
+                      expiresAt={hospitalTrackingData.expiresAt}
+                      isExpired={hospitalTrackingData.isExpired}
+                      remainingSeconds={hospitalTrackingData.remainingSeconds}
+                      locationSharingExpired={hospitalTrackingData.locationSharingExpired}
                       myRole="hospital"
                       height="380px"
                     />

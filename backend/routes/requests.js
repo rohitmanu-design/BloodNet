@@ -12,6 +12,7 @@ const {
   getRequestTracking,
   updateLocation,
   updateLocationConsent,
+  renewLocationSharing,
   selectActiveDonor,
   updateRequestStatus
 } = require('../controllers/requestController');
@@ -51,6 +52,7 @@ router.get('/donor/active', auth, authorize('donor'), getDonorActiveDonation);
 router.get('/:requestId/tracking', auth, getRequestTracking);
 router.post('/:requestId/location-update', auth, locationUpdateValidation, updateLocation);
 router.put('/:requestId/location-consent', auth, updateLocationConsent);
+router.put('/:requestId/renew-location-sharing', auth, renewLocationSharing);
 router.put('/:requestId/select-donor', auth, selectActiveDonor);
 router.put('/:requestId/status', auth, updateRequestStatus);
 

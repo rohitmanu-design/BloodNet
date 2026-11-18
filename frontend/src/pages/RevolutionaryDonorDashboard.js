@@ -899,8 +899,16 @@ const RevolutionaryDonorDashboard = () => {
                     bloodGroup: user?.bloodGroup,
                     currentLocation: donorCoords,
                     trackingStatus: donorTrackingStatus,
-                    shareLocation: activeDonation.shareLocation
+                    shareLocation: activeDonation.shareLocation,
+                    expiresAt: activeDonationTracking?.expiresAt,
+                    isExpired: activeDonationTracking?.isExpired,
+                    remainingSeconds: activeDonationTracking?.remainingSeconds,
+                    locationSharingExpired: activeDonationTracking?.locationSharingExpired
                   }}
+                  expiresAt={activeDonationTracking?.expiresAt}
+                  isExpired={activeDonationTracking?.isExpired}
+                  remainingSeconds={activeDonationTracking?.remainingSeconds}
+                  locationSharingExpired={activeDonationTracking?.locationSharingExpired}
                   myRole="donor"
                   height="380px"
                 />

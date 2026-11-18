@@ -233,6 +233,32 @@ io.on('connection', (socket) => {
       if (isParticipant) {
         socket.join(`request_${requestId}`);
         console.log(`[SOCKET] Authorized user ${userId} joined tracking room request_${requestId}`);
+
+        // Check if 24-hour window is already expired
+        const now = Date.now();
+        const DURATION_MS = 24 * 60 * 60 * 1000;
+        let isExpired = false;
+
+        if (reqDoc.acceptedHospitalInfo?.hospitalId?.toString() === userId?.toString()) {
+          const exp = reqDoc.acceptedHospitalInfo.locationSharingExpiresAt ||
+            (reqDoc.acceptedHospitalInfo.acceptedAt ? new Date(new Date(reqDoc.acceptedHospitalInfo.acceptedAt).getTime() + DURATION_MS) : null);
+          if (exp && now >= new Date(exp).getTime()) isExpired = true;
+        } else {
+          const dResp = reqDoc.responses?.find(r => r.responderId?.toString() === userId?.toString() && r.response === 'accepted');
+          if (dResp) {
+            const exp = dResp.locationSharingExpiresAt ||
+              (dResp.acceptedAt || dResp.timestamp ? new Date(new Date(dResp.acceptedAt || dResp.timestamp).getTime() + DURATION_MS) : null);
+            if (exp && now >= new Date(exp).getTime()) isExpired = true;
+          }
+        }
+
+        if (isExpired) {
+          socket.emit('locationSharingExpired', {
+            requestId,
+            userId,
+            message: 'Your 24-hour location sharing window for this request has concluded.'
+          });
+        }
       } else {
         console.warn(`[SOCKET] Unauthorized tracking room join attempt: user ${userId} on request ${requestId}`);
       }

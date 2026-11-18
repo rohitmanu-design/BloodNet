@@ -543,11 +543,54 @@ const RecipientDashboard = () => {
     socket.on('locationUpdate', handleLocationUpdate);
     socket.on('trackingStopped', handleTrackingStopped);
 
+    const handleLocationSharingExpired = (payload) => {
+      if (payload.requestId === activeTrackingRequest._id) {
+        setTrackingData(prev => prev ? {
+          ...prev,
+          isExpired: true,
+          locationSharingExpired: true,
+          remainingSeconds: 0
+        } : prev);
+      }
+    };
+
+    const handleLocationSharingRenewed = (payload) => {
+      if (payload.requestId === activeTrackingRequest._id) {
+        setTrackingData(prev => prev ? {
+          ...prev,
+          isExpired: false,
+          locationSharingExpired: false,
+          expiresAt: payload.expiresAt,
+          remainingSeconds: payload.remainingSeconds || 86400
+        } : prev);
+      }
+    };
+
+    socket.on('locationSharingExpired', handleLocationSharingExpired);
+    socket.on('locationSharingRenewed', handleLocationSharingRenewed);
+
     return () => {
       socket.off('locationUpdate', handleLocationUpdate);
       socket.off('trackingStopped', handleTrackingStopped);
+      socket.off('locationSharingExpired', handleLocationSharingExpired);
+      socket.off('locationSharingRenewed', handleLocationSharingRenewed);
     };
   }, [socket, activeTrackingRequest]);
+
+  // Renew 24-hour location sharing window with fresh authorization
+  const handleRenewSharing = async (responderId) => {
+    if (!activeTrackingRequest) return;
+    try {
+      const res = await requestAPI.renewLocationSharing(activeTrackingRequest._id, { responderId });
+      if (res.data?.success) {
+        const refresh = await requestAPI.getRequestTracking(activeTrackingRequest._id);
+        setTrackingData(refresh.data.tracking || refresh.data);
+      }
+    } catch (err) {
+      console.error('Failed to renew location sharing:', err);
+      alert(err.response?.data?.message || 'Failed to renew location sharing');
+    }
+  };
 
   // Toggle consent (pause/resume sharing without cancelling request)
   const handleToggleConsent = async (target, currentVal) => {
@@ -970,6 +1013,11 @@ const RecipientDashboard = () => {
                               donorInfo={trackingData.activeDonor}
                               myRole="recipient"
                               isRequestClosed={['completed', 'cancelled', 'rejected'].includes(trackingData.status)}
+                              expiresAt={trackingData.expiresAt}
+                              isExpired={trackingData.isExpired}
+                              remainingSeconds={trackingData.remainingSeconds}
+                              locationSharingExpired={trackingData.locationSharingExpired}
+                              onRenewSharing={() => handleRenewSharing(trackingData.activeDonor?._id || trackingData.activeDonor?.responderId || trackingData.hospitalInfo?.hospitalId)}
                               onToggleConsent={(type) => handleToggleConsent(type, type === 'hospital' ? trackingData.shareWithHospitals : trackingData.shareWithDonors)}
                             />
                           </div>
@@ -1051,7 +1099,9 @@ const RecipientDashboard = () => {
                                               <p className="text-gray-600 mt-0.5">📞 {donor.phone}</p>
                                             )}
                                             <div className="mt-1 flex items-center gap-1.5 text-[11px]">
-                                              {donor.shareLocation ? (
+                                              {donor.isExpired ? (
+                                                <span className="text-rose-700 font-bold">🔴 24h Window Expired</span>
+                                              ) : donor.donorShareLocation ? (
                                                 <span className="text-emerald-700 font-medium">🟢 Live Location Active</span>
                                               ) : (
                                                 <span className="text-gray-500">⚪ Location Sharing Off</span>
@@ -1059,6 +1109,16 @@ const RecipientDashboard = () => {
                                               <span className="text-gray-400">•</span>
                                               <span className="text-gray-500 capitalize">{donor.trackingStatus || 'En route'}</span>
                                             </div>
+                                            {donor.isExpired && (
+                                              <div className="mt-1">
+                                                <button
+                                                  onClick={() => handleRenewSharing(donor.responderId)}
+                                                  className="px-2 py-0.5 rounded bg-rose-100 hover:bg-rose-200 text-rose-800 text-[10px] font-bold transition-colors"
+                                                >
+                                                  + Renew 24h Window
+                                                </button>
+                                              </div>
+                                            )}
                                           </div>
                                           <div>
                                             {isCoordinating ? (

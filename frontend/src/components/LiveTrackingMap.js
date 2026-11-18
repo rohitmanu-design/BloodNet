@@ -9,15 +9,18 @@ import {
   ExclamationTriangleIcon,
   PauseIcon,
   PlayIcon,
-  NoSymbolIcon
+  NoSymbolIcon,
+  LockClosedIcon,
+  ArrowPathIcon
 } from '@heroicons/react/24/solid';
 
 /**
  * LiveTrackingMap
  * Production-ready real-time map displaying:
- * - Recipient location (if consented)
+ * - Recipient location (if consented and within 24h window)
  * - Accepted hospital's verified address (static, not live-moving)
- * - Accepted donor's live location (if donor enabled sharing)
+ * - Accepted donor's live location (if donor enabled sharing and within 24h window)
+ * - Enforces strict 24-hour automatic stop countdown and expired status
  * - Live status badges, accuracy, staleness, directions link & accessible text alternative
  */
 const LiveTrackingMap = ({
@@ -28,6 +31,11 @@ const LiveTrackingMap = ({
   myRole,
   isRequestClosed,
   onToggleConsent,
+  expiresAt,
+  isExpired,
+  remainingSeconds,
+  locationSharingExpired,
+  onRenewSharing,
   height = '420px'
 }) => {
   const mapContainerRef = useRef(null);
@@ -37,6 +45,95 @@ const LiveTrackingMap = ({
   const [googleMapsError, setGoogleMapsError] = useState(false);
   const [now, setNow] = useState(Date.now());
   const [resolvedCoords, setResolvedCoords] = useState({});
+
+  // 24-hour expiration state and countdown
+  const effectiveExpiresAt = expiresAt || donorInfo?.expiresAt || hospitalInfo?.expiresAt;
+  const [timeLeft, setTimeLeft] = useState(() => {
+    if (typeof remainingSeconds === 'number') return Math.max(0, remainingSeconds);
+    if (effectiveExpiresAt) {
+      return Math.max(0, Math.floor((new Date(effectiveExpiresAt).getTime() - Date.now()) / 1000));
+    }
+    return 86400; // default 24h in seconds if active
+  });
+
+  const [hasExpired, setHasExpired] = useState(() => {
+    if (isExpired || locationSharingExpired) return true;
+    if (donorInfo?.isExpired || donorInfo?.locationSharingExpired) return true;
+    if (hospitalInfo?.isExpired || hospitalInfo?.locationSharingExpired) return true;
+    if (effectiveExpiresAt) {
+      return Date.now() >= new Date(effectiveExpiresAt).getTime();
+    }
+    return false;
+  });
+
+  // Keep countdown running smoothly every second
+  useEffect(() => {
+    if (!effectiveExpiresAt) return;
+
+    const tick = () => {
+      const remainingMs = new Date(effectiveExpiresAt).getTime() - Date.now();
+      if (remainingMs <= 0) {
+        setTimeLeft(0);
+        setHasExpired(true);
+      } else {
+        setTimeLeft(Math.floor(remainingMs / 1000));
+        setHasExpired(false);
+      }
+    };
+
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [effectiveExpiresAt]);
+
+  // Sync state if server passes updated props
+  useEffect(() => {
+    if (isExpired || locationSharingExpired || donorInfo?.isExpired || hospitalInfo?.isExpired) {
+      setHasExpired(true);
+      setTimeLeft(0);
+    }
+  }, [isExpired, locationSharingExpired, donorInfo?.isExpired, hospitalInfo?.isExpired]);
+
+  // Listen to Socket.IO real-time expiration & renewal events
+  useEffect(() => {
+    const handleExpiredEvent = (data) => {
+      if (data?.requestId === requestId) {
+        setHasExpired(true);
+        setTimeLeft(0);
+      }
+    };
+
+    const handleRenewedEvent = (data) => {
+      if (data?.requestId === requestId) {
+        setHasExpired(false);
+        if (data.remainingSeconds) {
+          setTimeLeft(data.remainingSeconds);
+        } else if (data.expiresAt) {
+          setTimeLeft(Math.max(0, Math.floor((new Date(data.expiresAt).getTime() - Date.now()) / 1000)));
+        }
+      }
+    };
+
+    if (window.__bloodnetSocket) {
+      window.__bloodnetSocket.on('locationSharingExpired', handleExpiredEvent);
+      window.__bloodnetSocket.on('locationSharingRenewed', handleRenewedEvent);
+    }
+
+    return () => {
+      if (window.__bloodnetSocket) {
+        window.__bloodnetSocket.off('locationSharingExpired', handleExpiredEvent);
+        window.__bloodnetSocket.off('locationSharingRenewed', handleRenewedEvent);
+      }
+    };
+  }, [requestId]);
+
+  const formatCountdown = (totalSec) => {
+    if (!totalSec || totalSec <= 0) return '00h 00m 00s';
+    const hrs = Math.floor(totalSec / 3600);
+    const mins = Math.floor((totalSec % 3600) / 60);
+    const secs = totalSec % 60;
+    return `${hrs.toString().padStart(2, '0')}h ${mins.toString().padStart(2, '0')}m ${secs.toString().padStart(2, '0')}s`;
+  };
 
   // Dynamic geocoding for addresses that do not yet have numerical coordinates
   useEffect(() => {
@@ -85,7 +182,6 @@ const LiveTrackingMap = ({
     };
   }, []);
 
-  // Format relative timestamp
   const formatTimeAgo = (date) => {
     if (!date) return 'Not available';
     const seconds = Math.floor((now - new Date(date).getTime()) / 1000);
@@ -97,7 +193,6 @@ const LiveTrackingMap = ({
     return `${hours}h ago`;
   };
 
-  // Determine if location timestamp is stale (> 5 minutes)
   const isStale = (date) => {
     if (!date) return true;
     return (now - new Date(date).getTime()) > 5 * 60 * 1000;
@@ -112,7 +207,6 @@ const LiveTrackingMap = ({
 
     const apiKey = process.env.REACT_APP_GOOGLE_MAPS_API_KEY;
     if (!apiKey) {
-      // No Google Maps API key provided; cleanly use OpenStreetMap fallback
       setGoogleMapsReady(false);
       setGoogleMapsError(true);
       return;
@@ -140,46 +234,52 @@ const LiveTrackingMap = ({
     }
   }, []);
 
-  // Compute map center and active points
+  // Compute map center and active points (hiding expired coordinates)
   const points = useMemo(() => {
     const pts = [];
 
-    let reqLat = parseFloat(requesterLocation?.lat);
-    let reqLng = parseFloat(requesterLocation?.lng);
-    const reqAddr = (requesterLocation?.address || '').trim();
-    if ((isNaN(reqLat) || isNaN(reqLng) || (reqLat === 0 && reqLng === 0)) && reqAddr && resolvedCoords[reqAddr]) {
-      reqLat = resolvedCoords[reqAddr].lat;
-      reqLng = resolvedCoords[reqAddr].lng;
+    // Recipient location: only shown if not expired for responders
+    const recipientAccessAllowed = myRole === 'recipient' || (!hasExpired && !isRequestClosed);
+
+    if (recipientAccessAllowed && requesterLocation) {
+      let reqLat = parseFloat(requesterLocation?.lat);
+      let reqLng = parseFloat(requesterLocation?.lng);
+      const reqAddr = (requesterLocation?.address || '').trim();
+      if ((isNaN(reqLat) || isNaN(reqLng) || (reqLat === 0 && reqLng === 0)) && reqAddr && resolvedCoords[reqAddr]) {
+        reqLat = resolvedCoords[reqAddr].lat;
+        reqLng = resolvedCoords[reqAddr].lng;
+      }
+
+      if (!isNaN(reqLat) && !isNaN(reqLng) && (reqLat !== 0 || reqLng !== 0)) {
+        pts.push({
+          type: 'recipient',
+          title: 'Recipient Destination',
+          lat: reqLat,
+          lng: reqLng,
+          address: reqAddr || 'Recipient Location',
+          accuracy: requesterLocation?.accuracy,
+          lastUpdated: requesterLocation?.lastUpdated,
+          color: '#EF4444',
+          iconLetter: '♥',
+          directionsUrl: `https://www.google.com/maps/dir/?api=1&destination=${reqLat},${reqLng}`
+        });
+      } else if (reqAddr) {
+        pts.push({
+          type: 'recipient',
+          title: 'Recipient Destination',
+          lat: null,
+          lng: null,
+          address: reqAddr,
+          accuracy: null,
+          lastUpdated: requesterLocation?.lastUpdated,
+          color: '#EF4444',
+          iconLetter: '♥',
+          directionsUrl: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(reqAddr)}`
+        });
+      }
     }
 
-    if (!isNaN(reqLat) && !isNaN(reqLng) && (reqLat !== 0 || reqLng !== 0)) {
-      pts.push({
-        type: 'recipient',
-        title: 'Recipient Destination',
-        lat: reqLat,
-        lng: reqLng,
-        address: reqAddr || 'Recipient Location',
-        accuracy: requesterLocation?.accuracy,
-        lastUpdated: requesterLocation?.lastUpdated,
-        color: '#EF4444',
-        iconLetter: '♥',
-        directionsUrl: `https://www.google.com/maps/dir/?api=1&destination=${reqLat},${reqLng}`
-      });
-    } else if (reqAddr) {
-      pts.push({
-        type: 'recipient',
-        title: 'Recipient Destination',
-        lat: null,
-        lng: null,
-        address: reqAddr,
-        accuracy: null,
-        lastUpdated: requesterLocation?.lastUpdated,
-        color: '#EF4444',
-        iconLetter: '♥',
-        directionsUrl: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(reqAddr)}`
-      });
-    }
-
+    // Hospital location: saved facility address
     let hospLat = parseFloat(hospitalInfo?.lat);
     let hospLng = parseFloat(hospitalInfo?.lng);
     const hospAddr = (hospitalInfo?.address || '').trim();
@@ -214,23 +314,28 @@ const LiveTrackingMap = ({
       });
     }
 
-    const donorLat = parseFloat(donorInfo?.currentLocation?.lat);
-    const donorLng = parseFloat(donorInfo?.currentLocation?.lng);
-    if (!isNaN(donorLat) && !isNaN(donorLng) && (donorLat !== 0 || donorLng !== 0)) {
-      pts.push({
-        type: 'donor',
-        title: `Donor: ${donorInfo?.name || 'Responding Donor'}`,
-        lat: donorLat,
-        lng: donorLng,
-        accuracy: donorInfo?.currentLocation?.accuracy,
-        lastUpdated: donorInfo?.currentLocation?.lastUpdated,
-        color: '#059669',
-        iconLetter: 'D',
-        directionsUrl: `https://www.google.com/maps/dir/?api=1&destination=${donorLat},${donorLng}`
-      });
+    // Donor location: only shown if within unexpired 24-hour window
+    const donorAllowed = !hasExpired && !isRequestClosed && !donorInfo?.isExpired;
+    if (donorAllowed && donorInfo?.currentLocation?.lat) {
+      const donorLat = parseFloat(donorInfo.currentLocation.lat);
+      const donorLng = parseFloat(donorInfo.currentLocation.lng);
+      if (!isNaN(donorLat) && !isNaN(donorLng) && (donorLat !== 0 || donorLng !== 0)) {
+        pts.push({
+          type: 'donor',
+          title: `Donor: ${donorInfo?.name || 'Responding Donor'}`,
+          lat: donorLat,
+          lng: donorLng,
+          accuracy: donorInfo?.currentLocation?.accuracy,
+          lastUpdated: donorInfo?.currentLocation?.lastUpdated,
+          color: '#059669',
+          iconLetter: 'D',
+          directionsUrl: `https://www.google.com/maps/dir/?api=1&destination=${donorLat},${donorLng}`
+        });
+      }
     }
+
     return pts;
-  }, [requesterLocation, hospitalInfo, donorInfo, resolvedCoords]);
+  }, [requesterLocation, hospitalInfo, donorInfo, resolvedCoords, hasExpired, isRequestClosed, myRole]);
 
   // Initialize or update Google Map
   useEffect(() => {
@@ -248,28 +353,22 @@ const LiveTrackingMap = ({
     }
 
     const map = mapInstanceRef.current;
+    const bounds = new window.google.maps.LatLngBounds();
     const currentMarkers = markersRef.current;
 
-    // Clear old markers not in current points
+    // Clear stale markers
     Object.keys(currentMarkers).forEach(key => {
-      if (!points.some(p => p.type === key)) {
+      if (!points.some(p => p.type === key && p.lat && p.lng)) {
         currentMarkers[key].setMap(null);
         delete currentMarkers[key];
       }
     });
 
-    const bounds = new window.google.maps.LatLngBounds();
-
     points.forEach(point => {
+      if (!point.lat || !point.lng) return;
+
       const pos = { lat: point.lat, lng: point.lng };
       bounds.extend(pos);
-
-      const svgIcon = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(`
-        <svg width="36" height="36" viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg">
-          <circle cx="18" cy="18" r="16" fill="${point.color}" stroke="#FFFFFF" stroke-width="2.5" shadow="drop-shadow(0 2px 4px rgba(0,0,0,0.3))"/>
-          <text x="18" y="23" text-anchor="middle" fill="#FFFFFF" font-size="14" font-weight="bold" font-family="sans-serif">${point.iconLetter}</text>
-        </svg>
-      `)}`;
 
       if (currentMarkers[point.type]) {
         currentMarkers[point.type].setPosition(pos);
@@ -278,18 +377,28 @@ const LiveTrackingMap = ({
           position: pos,
           map,
           title: point.title,
+          label: {
+            text: point.iconLetter,
+            color: '#FFFFFF',
+            fontWeight: 'bold',
+            fontSize: '12px'
+          },
           icon: {
-            url: svgIcon,
-            scaledSize: new window.google.maps.Size(36, 36)
+            path: window.google.maps.SymbolPath.CIRCLE,
+            scale: 16,
+            fillColor: point.color,
+            fillOpacity: 1,
+            strokeColor: '#FFFFFF',
+            strokeWeight: 2
           }
         });
 
         const infoWindow = new window.google.maps.InfoWindow({
           content: `
-            <div style="font-family: sans-serif; padding: 6px 10px; max-width: 240px;">
-              <h4 style="margin: 0 0 4px; font-size: 13px; font-weight: 700; color: #111;">${point.title}</h4>
-              <p style="margin: 0; font-size: 11px; color: #555;">${point.address || 'Location coordinates active'}</p>
-              ${point.directionsUrl ? `<a href="${point.directionsUrl}" target="_blank" rel="noopener noreferrer" style="display:inline-block; margin-top:6px; font-size:11px; color:#2563EB; font-weight:600;">Get Directions &rarr;</a>` : ''}
+            <div style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; padding: 6px; max-width: 200px;">
+              <strong style="color: ${point.color}; font-size: 13px;">${point.title}</strong>
+              <p style="margin: 4px 0 0; font-size: 11px; color: #4B5563;">${point.address || 'Verified coordinate'}</p>
+              ${point.directionsUrl ? `<a href="${point.directionsUrl}" target="_blank" style="display: inline-block; margin-top: 6px; font-size: 11px; color: #2563EB; font-weight: 600;">Get Directions &rarr;</a>` : ''}
             </div>
           `
         });
@@ -304,20 +413,66 @@ const LiveTrackingMap = ({
 
     if (points.length > 1) {
       map.fitBounds(bounds, { top: 40, bottom: 40, left: 40, right: 40 });
-    } else if (points.length === 1) {
+    } else if (points.length === 1 && points[0].lat && points[0].lng) {
       map.setCenter({ lat: points[0].lat, lng: points[0].lng });
     }
   }, [googleMapsReady, points]);
 
   // Tracking status indicators
-  const donorLocationSharingActive = donorInfo?.donorShareLocation && donorInfo?.currentLocation?.lat && !isRequestClosed;
+  const donorLocationSharingActive = !hasExpired && donorInfo?.donorShareLocation && donorInfo?.currentLocation?.lat && !isRequestClosed;
   const donorStale = donorInfo?.currentLocation?.lastUpdated && isStale(donorInfo.currentLocation.lastUpdated);
 
-  const recipientSharingActive = requesterLocation?.lat && !isRequestClosed;
+  const recipientSharingActive = !hasExpired && requesterLocation?.lat && !isRequestClosed;
   const recipientStale = requesterLocation?.lastUpdated && isStale(requesterLocation.lastUpdated);
 
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+
+      {/* 24-HOUR AUTOMATIC STOP BANNER */}
+      {hasExpired ? (
+        <div className="px-5 py-3.5 bg-rose-50 border-b border-rose-200 text-xs flex flex-wrap items-center justify-between gap-3 text-rose-900">
+          <div className="flex items-center gap-2.5">
+            <span className="p-1.5 bg-rose-100 text-rose-700 rounded-lg">
+              <LockClosedIcon className="w-4 h-4 text-rose-700" />
+            </span>
+            <div>
+              <span className="font-extrabold text-rose-900 block text-xs">
+                24-Hour Location Sharing Window Expired
+              </span>
+              <span className="text-[11px] text-rose-700 block">
+                Sharing automatically concluded at exactly 24 hours for security & privacy. Live coordinates have been revoked for both sides.
+              </span>
+            </div>
+          </div>
+          {myRole === 'recipient' && onRenewSharing && !isRequestClosed && (
+            <button
+              onClick={onRenewSharing}
+              type="button"
+              className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5"
+            >
+              <ArrowPathIcon className="w-3.5 h-3.5" />
+              <span>Renew for 24 Hours</span>
+            </button>
+          )}
+        </div>
+      ) : effectiveExpiresAt ? (
+        <div className="px-5 py-2.5 bg-amber-50/90 border-b border-amber-200 text-xs flex flex-wrap items-center justify-between gap-2 text-amber-950">
+          <div className="flex items-center gap-2">
+            <ClockIcon className="w-4 h-4 text-amber-600 flex-shrink-0 animate-pulse" />
+            <span>
+              <strong className="font-bold">24-Hour Security Timer:</strong>{' '}
+              <span className="font-mono font-extrabold text-amber-900 bg-white/90 px-2 py-0.5 rounded border border-amber-300 shadow-2xs">
+                {formatCountdown(timeLeft)}
+              </span>{' '}
+              <span className="text-amber-800 text-[11px]">remaining before sharing stops automatically</span>
+            </span>
+          </div>
+          <span className="text-[10px] text-amber-700 font-semibold bg-amber-100/70 px-2 py-0.5 rounded-full">
+            Fixed 24h Window • No Auto-Renewal
+          </span>
+        </div>
+      ) : null}
+
       {/* Header Bar with Live Tracking Status */}
       <div className="px-5 py-4 border-b border-gray-100 flex flex-wrap items-center justify-between gap-3 bg-gradient-to-r from-gray-50 to-white">
         <div className="flex items-center space-x-2.5">
@@ -330,6 +485,10 @@ const LiveTrackingMap = ({
               {isRequestClosed ? (
                 <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-600">
                   Closed
+                </span>
+              ) : hasExpired ? (
+                <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-rose-100 text-rose-800 border border-rose-200">
+                  Expired (24h Limit)
                 </span>
               ) : (
                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 animate-pulse">
@@ -360,9 +519,14 @@ const LiveTrackingMap = ({
         </div>
       </div>
 
-      {/* Quick Location Cards - ALWAYS Visible on top */}
+      {/* Quick Location Cards on top */}
       <div className="p-3 bg-gray-50 border-b border-gray-200 flex flex-wrap gap-2 text-xs">
-        {points.length > 0 ? (
+        {hasExpired ? (
+          <div className="flex items-center space-x-2 text-rose-700 font-semibold px-2 py-1">
+            <LockClosedIcon className="w-4 h-4" />
+            <span>24-hour location sharing timer elapsed. Live coordinates are locked.</span>
+          </div>
+        ) : points.length > 0 ? (
           points.map((pt) => (
             <div
               key={pt.type}
@@ -381,10 +545,9 @@ const LiveTrackingMap = ({
                   href={pt.directionsUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-blue-600 hover:text-blue-800 font-bold flex items-center gap-0.5 ml-2 bg-blue-50 hover:bg-blue-100 px-2 py-1 rounded-md transition-colors"
+                  className="text-blue-600 hover:underline font-semibold ml-1 flex items-center"
                 >
-                  <span>Directions</span>
-                  <ArrowTopRightOnSquareIcon className="w-3 h-3" />
+                  Nav <ArrowTopRightOnSquareIcon className="w-3 h-3 ml-0.5" />
                 </a>
               )}
             </div>
@@ -412,9 +575,13 @@ const LiveTrackingMap = ({
             return (
               <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center text-gray-500 bg-gray-50">
                 <MapPinIcon className="w-10 h-10 text-gray-400 mb-2 animate-bounce" />
-                <p className="text-sm font-semibold text-gray-700">Resolving Location Map View...</p>
+                <p className="text-sm font-semibold text-gray-700">
+                  {hasExpired ? 'Location Sharing Concluded' : 'Resolving Location Map View...'}
+                </p>
                 <p className="text-xs text-gray-500 mt-1 max-w-sm">
-                  {points[0]?.address ? `Locating "${points[0].address}"...` : 'Waiting for verified address or GPS coordinates.'}
+                  {hasExpired
+                    ? '24-hour location sharing timer ended. Live map coordinates have been removed.'
+                    : (points[0]?.address ? `Locating "${points[0].address}"...` : 'Waiting for verified address or GPS coordinates.')}
                 </p>
               </div>
             );
@@ -437,11 +604,13 @@ const LiveTrackingMap = ({
           {donorInfo && (
             <div className="flex items-center space-x-1.5">
               <span className={`w-2 h-2 rounded-full ${
-                donorLocationSharingActive ? (donorStale ? 'bg-amber-500' : 'bg-emerald-500 animate-pulse') : 'bg-gray-400'
+                hasExpired ? 'bg-rose-500' : (donorLocationSharingActive ? (donorStale ? 'bg-amber-500' : 'bg-emerald-500 animate-pulse') : 'bg-gray-400')
               }`} />
               <span className="font-semibold text-gray-800">Donor:</span>
-              <span className={donorLocationSharingActive ? 'text-emerald-700 font-medium' : 'text-gray-500'}>
-                {donorLocationSharingActive ? (donorStale ? 'Location stale (>5m)' : 'En route (sharing active)') : 'Location paused/private'}
+              <span className={hasExpired ? 'text-rose-700 font-bold' : (donorLocationSharingActive ? 'text-emerald-700 font-medium' : 'text-gray-500')}>
+                {hasExpired
+                  ? 'Expired (24h stop)'
+                  : (donorLocationSharingActive ? (donorStale ? 'Location stale (>5m)' : 'En route (sharing active)') : 'Location paused/private')}
               </span>
             </div>
           )}
@@ -450,7 +619,9 @@ const LiveTrackingMap = ({
             <div className="flex items-center space-x-1.5 pl-3 border-l border-gray-200">
               <ShieldCheckIcon className="w-4 h-4 text-blue-600" />
               <span className="font-semibold text-gray-800">Hospital:</span>
-              <span className="text-blue-700 font-medium">Verified facility address</span>
+              <span className="text-blue-700 font-medium">
+                {hasExpired ? 'Verified facility (sharing window ended)' : 'Verified facility address'}
+              </span>
             </div>
           )}
         </div>
@@ -470,12 +641,14 @@ const LiveTrackingMap = ({
             </span>
           </div>
           <p className="text-xs text-gray-700 font-medium truncate">
-            {requesterLocation?.address || 'Provided to authorized responders'}
+            {hasExpired && myRole !== 'recipient'
+              ? 'Access revoked (24h window elapsed)'
+              : (requesterLocation?.address || 'Provided to authorized responders')}
           </p>
           <div className="text-[11px] text-gray-500 flex items-center justify-between pt-1 border-t border-gray-100">
             <span>Accuracy: {requesterLocation?.accuracy ? `±${Math.round(requesterLocation.accuracy)}m` : 'Standard'}</span>
-            <span className={`font-semibold ${recipientStale ? 'text-amber-600' : 'text-emerald-600'}`}>
-              {recipientStale ? 'Stale' : 'Active'}
+            <span className={`font-semibold ${hasExpired ? 'text-rose-600' : (recipientStale ? 'text-amber-600' : 'text-emerald-600')}`}>
+              {hasExpired ? 'Expired' : (recipientStale ? 'Stale' : 'Active')}
             </span>
           </div>
         </div>
@@ -495,6 +668,12 @@ const LiveTrackingMap = ({
           <p className="text-[11px] text-gray-500 truncate">
             {hospitalInfo?.address || 'Address provided upon acceptance'}
           </p>
+          <div className="text-[11px] text-gray-500 flex items-center justify-between pt-1 border-t border-gray-100">
+            <span>24h Timer:</span>
+            <span className={`font-semibold ${hospitalInfo?.isExpired || hasExpired ? 'text-rose-600' : 'text-emerald-600'}`}>
+              {hospitalInfo?.isExpired || hasExpired ? 'Expired' : 'Active'}
+            </span>
+          </div>
         </div>
 
         {/* 3. Donor Coordination Card */}
@@ -515,19 +694,19 @@ const LiveTrackingMap = ({
             <span className="text-gray-500">
               {donorLocationSharingActive ? `Accuracy: ±${Math.round(donorInfo.currentLocation?.accuracy || 15)}m` : 'Location private'}
             </span>
-            <span className={`font-semibold ${donorLocationSharingActive ? (donorStale ? 'text-amber-600' : 'text-emerald-600') : 'text-gray-400'}`}>
-              {donorLocationSharingActive ? (donorStale ? 'Stale' : 'Live Sharing') : 'Off'}
+            <span className={`font-semibold ${hasExpired || donorInfo?.isExpired ? 'text-rose-600' : (donorLocationSharingActive ? (donorStale ? 'text-amber-600' : 'text-emerald-600') : 'text-gray-400')}`}>
+              {hasExpired || donorInfo?.isExpired ? 'Expired (24h)' : (donorLocationSharingActive ? (donorStale ? 'Stale' : 'Live Sharing') : 'Off')}
             </span>
           </div>
         </div>
       </div>
 
-      {/* Mobile & Privacy Notice Footer */}
+      {/* Security, Expiration & Privacy Notice Footer */}
       <div className="px-5 py-2.5 bg-gray-50 border-t border-gray-100 text-[11px] text-gray-500 flex flex-wrap items-center justify-between gap-2">
         <span>
-          🔒 <strong>Privacy & Device Notice:</strong> Location updates are securely transmitted only while the BloodNet+ tab is open. Tracking ceases immediately when this request is marked completed.
+          🔒 <strong>24-Hour Strict Lifecycle Notice:</strong> Location sharing automatically halts 24 hours after response acceptance. Does not extend on refresh or new pings. Renewals require fresh recipient authorization.
         </span>
-        <span className="text-gray-400">End-to-end authorized participants only</span>
+        <span className="text-gray-400 font-medium">Mutual Security Protocol</span>
       </div>
     </div>
   );

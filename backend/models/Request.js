@@ -57,7 +57,7 @@ const requestSchema = new mongoose.Schema({
     },
     trackingStatus: {
       type: String,
-      enum: ['inactive', 'active', 'paused', 'stopped'],
+      enum: ['inactive', 'active', 'paused', 'stopped', 'expired'],
       default: 'inactive'
     }
   },
@@ -129,6 +129,14 @@ const requestSchema = new mongoose.Schema({
       type: Date,
       default: Date.now
     },
+    acceptedAt: {
+      type: Date,
+      default: null
+    },
+    locationSharingExpiresAt: {
+      type: Date,
+      default: null
+    },
     // Donor explicit location sharing preference and location state
     donorShareLocation: {
       type: Boolean,
@@ -142,7 +150,7 @@ const requestSchema = new mongoose.Schema({
     },
     trackingStatus: {
       type: String,
-      enum: ['inactive', 'active', 'paused', 'stopped'],
+      enum: ['inactive', 'active', 'paused', 'stopped', 'expired'],
       default: 'inactive'
     }
   }],
@@ -165,6 +173,7 @@ const requestSchema = new mongoose.Schema({
     lng: { type: Number, default: null },
     phone: { type: String, default: '' },
     acceptedAt: { type: Date, default: null },
+    locationSharingExpiresAt: { type: Date, default: null },
     verified: { type: Boolean, default: true },
     isLiveLocation: { type: Boolean, default: false } // Hospital is static verified facility
   },

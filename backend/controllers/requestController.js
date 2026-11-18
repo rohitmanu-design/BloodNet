@@ -19,6 +19,34 @@ const calculateDistance = (lat1, lon1, lat2, lon2) => {
   return R * c;
 };
 
+const LOCATION_SHARING_DURATION_MS = 24 * 60 * 60 * 1000; // Exactly 24 hours
+
+const getResponderExpiration = (acceptedAt, expiresAt) => {
+  if (expiresAt) {
+    const expDate = new Date(expiresAt);
+    const now = Date.now();
+    return {
+      expiresAt: expDate,
+      isExpired: now >= expDate.getTime(),
+      remainingSeconds: Math.max(0, Math.floor((expDate.getTime() - now) / 1000))
+    };
+  }
+  if (acceptedAt) {
+    const expDate = new Date(new Date(acceptedAt).getTime() + LOCATION_SHARING_DURATION_MS);
+    const now = Date.now();
+    return {
+      expiresAt: expDate,
+      isExpired: now >= expDate.getTime(),
+      remainingSeconds: Math.max(0, Math.floor((expDate.getTime() - now) / 1000))
+    };
+  }
+  return {
+    expiresAt: null,
+    isExpired: false,
+    remainingSeconds: null
+  };
+};
+
 const createRequest = async (req, res) => {
   try {
     console.log('Request body received:', req.body);
@@ -438,6 +466,9 @@ const respondToRequest = async (req, res) => {
           } catch (e) {}
         }
 
+        const acceptanceTime = new Date();
+        const locationSharingExpiresAt = new Date(acceptanceTime.getTime() + LOCATION_SHARING_DURATION_MS);
+
         request.acceptedHospitalInfo = {
           hospitalId: req.user.id,
           hospitalName: req.user.hospitalName || req.user.name || 'Verified Hospital Center',
@@ -445,7 +476,8 @@ const respondToRequest = async (req, res) => {
           lat: hospLat,
           lng: hospLng,
           phone: req.user.contactNumber || req.user.phone || '',
-          acceptedAt: new Date(),
+          acceptedAt: acceptanceTime,
+          locationSharingExpiresAt,
           verified: true,
           isLiveLocation: false // Hospital uses saved verified facility address
         };
@@ -460,6 +492,11 @@ const respondToRequest = async (req, res) => {
       }
       request.status = 'accepted';
     }
+
+    const acceptanceTime = new Date();
+    const locationSharingExpiresAt = response === 'accepted'
+      ? new Date(acceptanceTime.getTime() + LOCATION_SHARING_DURATION_MS)
+      : null;
 
     const donorShareLocation = Boolean(req.body.shareLocation);
     let donorCurrentLocation = null;
@@ -486,10 +523,12 @@ const respondToRequest = async (req, res) => {
       responderType: req.user.role,
       response,
       message: message || '',
-      timestamp: new Date(),
+      timestamp: acceptanceTime,
+      acceptedAt: response === 'accepted' ? acceptanceTime : null,
+      locationSharingExpiresAt,
       donorShareLocation,
       currentLocation: donorCurrentLocation,
-      trackingStatus: donorShareLocation ? 'active' : 'inactive'
+      trackingStatus: (response === 'accepted' && donorShareLocation) ? 'active' : 'inactive'
     });
 
     await request.save();
@@ -499,7 +538,7 @@ const respondToRequest = async (req, res) => {
         action: 'request_status_updated',
         userId: req.user.id,
         requestId: request._id,
-        details: `Request #${request._id} response recorded (${response}) by ${req.user.role} ${req.user.name || req.user.id}`
+        details: `Request #${request._id} response recorded (${response}) by ${req.user.role} ${req.user.name || req.user.id}. 24-hour location sharing timer initiated (expires ${locationSharingExpiresAt ? locationSharingExpiresAt.toISOString() : 'N/A'}).`
       });
       if (global.io) {
         global.io.emit('adminUpdate', { type: 'request_updated', request });
@@ -653,6 +692,15 @@ const getRequestTracking = async (req, res) => {
     let donorInfo = null;
     let allAcceptedDonors = [];
 
+    // 24-hour expiration evaluation for each responder role
+    const hospAcceptedAt = request.acceptedHospitalInfo?.acceptedAt || request.responseDate;
+    const hospExpiresAt = request.acceptedHospitalInfo?.locationSharingExpiresAt;
+    const hospitalExp = getResponderExpiration(hospAcceptedAt, hospExpiresAt);
+
+    const myDonorAcceptedAt = donorResponse ? (donorResponse.acceptedAt || donorResponse.timestamp) : null;
+    const myDonorExpiresAt = donorResponse ? donorResponse.locationSharingExpiresAt : null;
+    const myDonorExp = getResponderExpiration(myDonorAcceptedAt, myDonorExpiresAt);
+
     // 1. Recipient location access logic
     if (isRequester || isAdmin) {
       requesterLocation = {
@@ -667,8 +715,8 @@ const getRequestTracking = async (req, res) => {
         shareWithDonors: request.location?.shareWithDonors !== false
       };
     } else if (isHospital) {
-      // Hospital only sees recipient location if recipient consented
-      if (request.location?.shareWithHospitals !== false && !isRequestClosed) {
+      // Hospital only sees recipient location if recipient consented and 24h window has not expired
+      if (request.location?.shareWithHospitals !== false && !isRequestClosed && !hospitalExp.isExpired) {
         requesterLocation = {
           address: request.location?.address || '',
           lat: request.location?.lat || 0,
@@ -680,8 +728,8 @@ const getRequestTracking = async (req, res) => {
         };
       }
     } else if (isDonor) {
-      // Donor only sees recipient location if recipient consented with donors
-      if (request.location?.shareWithDonors !== false && !isRequestClosed) {
+      // Donor only sees recipient location if recipient consented with donors and 24h window has not expired
+      if (request.location?.shareWithDonors !== false && !isRequestClosed && !myDonorExp.isExpired) {
         requesterLocation = {
           address: request.location?.address || '',
           lat: request.location?.lat || 0,
@@ -713,7 +761,12 @@ const getRequestTracking = async (req, res) => {
         lat: hospLat,
         lng: hospLng,
         phone: hosp.phone || hosp.contactNumber || '',
-        acceptedAt: hosp.acceptedAt || request.responseDate || request.updatedAt,
+        acceptedAt: hospAcceptedAt || hosp.acceptedAt || request.responseDate || request.updatedAt,
+        expiresAt: hospitalExp.expiresAt,
+        isExpired: hospitalExp.isExpired,
+        remainingSeconds: hospitalExp.remainingSeconds,
+        locationSharingExpired: hospitalExp.isExpired,
+        trackingStatus: isRequestClosed ? 'stopped' : (hospitalExp.isExpired ? 'expired' : 'active'),
         verified: true,
         isLiveLocation: false, // Hospital is saved verified facility
         directionsUrl
@@ -726,9 +779,12 @@ const getRequestTracking = async (req, res) => {
     );
 
     if (isRequester || isAdmin) {
-      // Recipient can see all responding donors and their location sharing state
+      // Recipient can see all responding donors and their individual 24-hour location sharing state
       allAcceptedDonors = acceptedResponses.map(r => {
-        const canShare = r.donorShareLocation === true && !isRequestClosed;
+        const dAcceptedAt = r.acceptedAt || r.timestamp;
+        const dExpiresAt = r.locationSharingExpiresAt;
+        const dExp = getResponderExpiration(dAcceptedAt, dExpiresAt);
+        const canShare = r.donorShareLocation === true && !isRequestClosed && !dExp.isExpired;
         const respId = r.responderId?._id || r.responderId;
         const isCoord = (request.activeDonorId?._id || request.activeDonorId)?.toString() === respId?.toString();
         return {
@@ -736,9 +792,13 @@ const getRequestTracking = async (req, res) => {
           name: r.responderId?.name || 'Verified Donor',
           phone: r.responderId?.phone || '',
           bloodGroup: r.responderId?.bloodGroup || '',
-          acceptedAt: r.timestamp,
+          acceptedAt: dAcceptedAt,
+          expiresAt: dExp.expiresAt,
+          isExpired: dExp.isExpired,
+          remainingSeconds: dExp.remainingSeconds,
+          locationSharingExpired: dExp.isExpired,
           donorShareLocation: r.donorShareLocation || false,
-          trackingStatus: isRequestClosed ? 'stopped' : (r.trackingStatus || 'inactive'),
+          trackingStatus: isRequestClosed ? 'stopped' : (dExp.isExpired ? 'expired' : (r.trackingStatus || 'inactive')),
           isCoordinating: isCoord,
           currentLocation: canShare && r.currentLocation?.lat ? {
             lat: r.currentLocation.lat,
@@ -754,15 +814,19 @@ const getRequestTracking = async (req, res) => {
       donorInfo = allAcceptedDonors.find(d => d.isCoordinating) || allAcceptedDonors[0] || null;
     } else if (isDonor) {
       // Donor only sees their own response and tracking state, NEVER other donors' data
-      const canShare = donorResponse.donorShareLocation === true && !isRequestClosed;
+      const canShare = donorResponse.donorShareLocation === true && !isRequestClosed && !myDonorExp.isExpired;
       const respId = donorResponse.responderId?._id || donorResponse.responderId;
       const isCoord = (request.activeDonorId?._id || request.activeDonorId)?.toString() === req.user.id.toString();
       donorInfo = {
         responderId: respId,
         name: req.user.name || 'You',
-        acceptedAt: donorResponse.timestamp,
+        acceptedAt: myDonorAcceptedAt,
+        expiresAt: myDonorExp.expiresAt,
+        isExpired: myDonorExp.isExpired,
+        remainingSeconds: myDonorExp.remainingSeconds,
+        locationSharingExpired: myDonorExp.isExpired,
         donorShareLocation: donorResponse.donorShareLocation || false,
-        trackingStatus: isRequestClosed ? 'stopped' : (donorResponse.trackingStatus || 'inactive'),
+        trackingStatus: isRequestClosed ? 'stopped' : (myDonorExp.isExpired ? 'expired' : (donorResponse.trackingStatus || 'inactive')),
         isCoordinating: isCoord,
         currentLocation: canShare && donorResponse.currentLocation?.lat ? {
           lat: donorResponse.currentLocation.lat,
@@ -772,6 +836,24 @@ const getRequestTracking = async (req, res) => {
           isStale: checkStaleness(donorResponse.currentLocation.lastUpdated)
         } : null
       };
+    }
+
+    // Overall expiration context for current caller
+    let userExpiration = null;
+    if (isHospital) {
+      userExpiration = hospitalExp;
+    } else if (isDonor) {
+      userExpiration = myDonorExp;
+    } else if (isRequester) {
+      if (donorInfo) {
+        userExpiration = {
+          expiresAt: donorInfo.expiresAt,
+          isExpired: donorInfo.isExpired,
+          remainingSeconds: donorInfo.remainingSeconds
+        };
+      } else if (hospitalInfo) {
+        userExpiration = hospitalExp;
+      }
     }
 
     const trackingData = {
@@ -790,7 +872,11 @@ const getRequestTracking = async (req, res) => {
       allAcceptedDonors,
       shareWithHospitals: request.location?.shareWithHospitals !== false,
       shareWithDonors: request.location?.shareWithDonors !== false,
-      activeDonorId: request.activeDonorId || request.donorId || null
+      activeDonorId: request.activeDonorId || request.donorId || null,
+      expiresAt: userExpiration?.expiresAt || null,
+      isExpired: Boolean(userExpiration?.isExpired),
+      remainingSeconds: userExpiration?.remainingSeconds !== undefined ? userExpiration.remainingSeconds : null,
+      locationSharingExpired: Boolean(userExpiration?.isExpired)
     };
 
     res.json({
@@ -847,6 +933,23 @@ const updateLocation = async (req, res) => {
       if (request.location.trackingStatus === 'stopped') {
         return res.status(400).json({ message: 'Location sharing is turned off for this request' });
       }
+
+      // Check if all accepted responders have expired 24h windows
+      const acceptedResponders = (request.responses || []).filter(r => r.response === 'accepted');
+      const hasAcceptedHospital = Boolean(request.acceptedHospitalInfo?.acceptedAt);
+      if (acceptedResponders.length > 0 || hasAcceptedHospital) {
+        const allRespondersExpired = acceptedResponders.every(r => getResponderExpiration(r.acceptedAt || r.timestamp, r.locationSharingExpiresAt).isExpired) &&
+          (!hasAcceptedHospital || getResponderExpiration(request.acceptedHospitalInfo.acceptedAt, request.acceptedHospitalInfo.locationSharingExpiresAt).isExpired);
+        if (allRespondersExpired) {
+          request.location.trackingStatus = 'expired';
+          await request.save();
+          return res.status(403).json({
+            message: '24-hour location sharing window has expired for all responders on this request.',
+            isExpired: true
+          });
+        }
+      }
+
       request.location.lat = latNum;
       request.location.lng = lngNum;
       if (accNum !== null) request.location.accuracy = accNum;
@@ -864,6 +967,29 @@ const updateLocation = async (req, res) => {
         isStale: false
       };
     } else if (isDonor) {
+      const donorExp = getResponderExpiration(donorResp.acceptedAt || donorResp.timestamp, donorResp.locationSharingExpiresAt);
+      if (donorExp.isExpired) {
+        donorResp.trackingStatus = 'expired';
+        donorResp.donorShareLocation = false;
+        donorResp.currentLocation = { lat: null, lng: null, accuracy: null, lastUpdated: null };
+        await request.save();
+
+        if (global.io) {
+          global.io.to(`request_${requestId}`).emit('locationSharingExpired', {
+            requestId,
+            userId,
+            role: 'donor',
+            message: '24-hour location sharing window has expired for this donor.'
+          });
+        }
+
+        return res.status(403).json({
+          message: '24-hour location sharing window has expired for this request. Location updates are no longer permitted.',
+          isExpired: true,
+          expiredAt: donorExp.expiresAt
+        });
+      }
+
       if (!donorResp.donorShareLocation || donorResp.trackingStatus === 'stopped') {
         return res.status(400).json({ message: 'Location sharing is disabled or turned off for your donor account' });
       }
@@ -883,7 +1009,9 @@ const updateLocation = async (req, res) => {
         lng: lngNum,
         accuracy: accNum,
         lastUpdated: updateTime,
-        isStale: false
+        isStale: false,
+        expiresAt: donorExp.expiresAt,
+        remainingSeconds: donorExp.remainingSeconds
       };
     }
 
@@ -933,6 +1061,15 @@ const updateLocationConsent = async (req, res) => {
         request.location.trackingStatus = trackingStatus;
       }
     } else if (isDonor) {
+      const donorExp = getResponderExpiration(donorResp.acceptedAt || donorResp.timestamp, donorResp.locationSharingExpiresAt);
+      if (donorExp.isExpired && (donorShareLocation === true || trackingStatus === 'active')) {
+        return res.status(400).json({
+          message: 'The 24-hour location sharing window for this request has ended and cannot be restarted automatically. A renewed authorization from the recipient is required.',
+          code: 'SHARING_EXPIRED',
+          isExpired: true
+        });
+      }
+
       if (typeof donorShareLocation === 'boolean') {
         donorResp.donorShareLocation = donorShareLocation;
         if (!donorShareLocation) {
@@ -961,6 +1098,112 @@ const updateLocationConsent = async (req, res) => {
   } catch (error) {
     console.error('Update location consent error:', error);
     res.status(500).json({ message: 'Server error updating consent' });
+  }
+};
+
+const renewLocationSharing = async (req, res) => {
+  try {
+    const { requestId } = req.params;
+    const { responderId } = req.body;
+    const userId = req.user.id;
+
+    const request = await Request.findById(requestId);
+    if (!request) {
+      return res.status(404).json({ message: 'Request not found' });
+    }
+
+    const isRequester = request.requesterId.toString() === userId.toString();
+    const isAdmin = req.user.role === 'admin';
+    if (!isRequester && !isAdmin) {
+      return res.status(403).json({ message: 'Only the request recipient can authorize renewed location sharing.' });
+    }
+
+    if (['completed', 'cancelled', 'rejected'].includes(request.status)) {
+      return res.status(400).json({ message: 'Cannot renew location sharing on a closed request.' });
+    }
+
+    const renewalTime = new Date();
+    const newExpiresAt = new Date(renewalTime.getTime() + LOCATION_SHARING_DURATION_MS);
+    let renewedTarget = null;
+
+    if (responderId) {
+      const dResp = request.responses?.find(
+        r => r.responderId.toString() === responderId.toString() && r.response === 'accepted'
+      );
+      if (dResp) {
+        dResp.acceptedAt = renewalTime;
+        dResp.locationSharingExpiresAt = newExpiresAt;
+        dResp.trackingStatus = 'active';
+        dResp.donorShareLocation = true;
+        renewedTarget = { id: responderId, type: 'donor' };
+      }
+
+      if (request.acceptedHospitalInfo?.hospitalId?.toString() === responderId.toString()) {
+        request.acceptedHospitalInfo.acceptedAt = renewalTime;
+        request.acceptedHospitalInfo.locationSharingExpiresAt = newExpiresAt;
+        renewedTarget = { id: responderId, type: 'hospital' };
+      }
+    } else {
+      if (request.activeDonorId) {
+        const dResp = request.responses?.find(
+          r => r.responderId.toString() === request.activeDonorId.toString() && r.response === 'accepted'
+        );
+        if (dResp) {
+          dResp.acceptedAt = renewalTime;
+          dResp.locationSharingExpiresAt = newExpiresAt;
+          dResp.trackingStatus = 'active';
+          dResp.donorShareLocation = true;
+          renewedTarget = { id: request.activeDonorId, type: 'donor' };
+        }
+      }
+      if (request.acceptedHospitalInfo?.hospitalId) {
+        request.acceptedHospitalInfo.acceptedAt = renewalTime;
+        request.acceptedHospitalInfo.locationSharingExpiresAt = newExpiresAt;
+        renewedTarget = renewedTarget || { id: request.acceptedHospitalInfo.hospitalId, type: 'hospital' };
+      }
+    }
+
+    if (!renewedTarget) {
+      return res.status(404).json({ message: 'No accepted responder found to renew.' });
+    }
+
+    request.location.trackingStatus = 'active';
+    request.location.lastUpdated = renewalTime;
+    await request.save();
+
+    try {
+      await AuditLog.create({
+        action: 'location_sharing_renewed',
+        userId,
+        requestId: request._id,
+        details: `Explicit 24-hour location sharing renewed by recipient for ${renewedTarget.type} ${renewedTarget.id}. New expiry: ${newExpiresAt.toISOString()}`
+      });
+    } catch (e) {
+      console.warn('AuditLog error on location renew:', e.message);
+    }
+
+    if (global.io) {
+      global.io.to(`request_${requestId}`).emit('locationSharingRenewed', {
+        requestId,
+        renewedBy: userId,
+        responderId: renewedTarget.id,
+        responderType: renewedTarget.type,
+        expiresAt: newExpiresAt,
+        remainingSeconds: Math.floor(LOCATION_SHARING_DURATION_MS / 1000),
+        message: 'A fresh 24-hour location sharing window has been authorized by the recipient.'
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Location sharing renewed for 24 hours with fresh authorization recorded.',
+      expiresAt: newExpiresAt,
+      remainingSeconds: Math.floor(LOCATION_SHARING_DURATION_MS / 1000),
+      renewedTarget
+    });
+  } catch (error) {
+    console.error('Renew location sharing error:', error);
+    res.status(500).json({ message: 'Server error renewing location sharing' });
   }
 };
 
@@ -1069,6 +1312,7 @@ module.exports = {
   getRequestTracking,
   updateLocation,
   updateLocationConsent,
+  renewLocationSharing,
   selectActiveDonor,
   updateRequestStatus
 };
