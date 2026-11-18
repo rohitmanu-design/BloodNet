@@ -4,6 +4,7 @@ const Request = require('../models/Request');
 const Notification = require('../models/Notification');
 const OtpVerification = require('../models/OtpVerification');
 const { normalizePhoneNumber } = require('../utils/phoneUtils');
+const { geocodeAddress } = require('../utils/geocoder');
 
 const updateProfile = async (req, res) => {
   try {
@@ -18,18 +19,42 @@ const updateProfile = async (req, res) => {
       return res.status(400).json({ message: 'No data provided' });
     }
 
-    const allowedFields = ['name', 'hospitalName', 'phone', 'contactNumber', 'location', 'address', 'age', 'bloodGroup', 'email'];
+    const allowedFields = [
+      'name', 'firstName', 'lastName', 'hospitalName', 'phone', 'contactNumber',
+      'emergencyContact', 'location', 'address', 'city', 'age', 'gender',
+      'bloodGroup', 'email', 'isAvailable', 'lastDonation'
+    ];
     const updates = {};
 
     allowedFields.forEach(field => {
       if (body[field] !== undefined && body[field] !== '') {
-        updates[field] = body[field];
+        if (field === 'isAvailable') {
+          updates[field] = body[field] === true || body[field] === 'true';
+        } else if (field === 'age') {
+          const numAge = parseInt(body[field], 10);
+          if (!isNaN(numAge)) updates[field] = numAge;
+        } else {
+          updates[field] = body[field];
+        }
       }
     });
 
     const currentUser = await User.findById(req.user.id);
     if (!currentUser) {
       return res.status(404).json({ message: 'User not found' });
+    }
+
+    // Synchronize first/last name with unified name
+    if (updates.firstName || updates.lastName) {
+      const fName = updates.firstName !== undefined ? updates.firstName.trim() : (currentUser.firstName || '');
+      const lName = updates.lastName !== undefined ? updates.lastName.trim() : (currentUser.lastName || '');
+      updates.firstName = fName;
+      updates.lastName = lName;
+      updates.name = `${fName} ${lName}`.trim();
+    } else if (updates.name && (!updates.firstName && !updates.lastName)) {
+      const parts = updates.name.trim().split(/\s+/);
+      updates.firstName = parts[0] || '';
+      updates.lastName = parts.slice(1).join(' ') || '';
     }
 
     // Invalidate phone verification if phone number changes
@@ -58,14 +83,45 @@ const updateProfile = async (req, res) => {
     // Handle donor health details
     if (req.user.role === 'donor') {
       if (body.weight !== undefined && body.weight !== '') {
-        updates['donorHealthDetails.weight'] = body.weight;
+        updates['donorHealthDetails.weight'] = parseFloat(body.weight);
       }
       if (body.hemoglobin !== undefined && body.hemoglobin !== '') {
-        updates['donorHealthDetails.hemoglobin'] = body.hemoglobin;
+        updates['donorHealthDetails.hemoglobin'] = parseFloat(body.hemoglobin);
       }
       if (body.age !== undefined && body.age !== '') {
-        updates['donorHealthDetails.age'] = body.age;
+        const dAge = parseInt(body.age, 10);
+        updates['donorHealthDetails.age'] = dAge;
+        updates.age = dAge;
       }
+    }
+
+    // Update location and geocode if address or city changed
+    const newAddress = updates.address !== undefined ? updates.address.trim() : (currentUser.address || '');
+    const newCity = updates.city !== undefined ? updates.city.trim() : (currentUser.city || '');
+    const addressChanged = (updates.address !== undefined && updates.address !== currentUser.address) ||
+                          (updates.city !== undefined && updates.city !== currentUser.city);
+
+    if (addressChanged || (currentUser.location?.lat === 0 && currentUser.location?.lng === 0)) {
+      let lat = currentUser.location?.lat || 0;
+      let lng = currentUser.location?.lng || 0;
+      const fullSearch = `${newAddress} ${newCity}`.trim();
+      if (fullSearch) {
+        try {
+          const geo = await geocodeAddress(fullSearch);
+          if (geo && geo.lat && geo.lng) {
+            lat = geo.lat;
+            lng = geo.lng;
+          }
+        } catch (e) {
+          console.warn('Geocoding updated profile address error:', e.message);
+        }
+      }
+      updates.location = {
+        lat,
+        lng,
+        address: newAddress,
+        city: newCity
+      };
     }
 
     // Handle profile image upload

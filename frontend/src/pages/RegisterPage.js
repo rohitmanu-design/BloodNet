@@ -48,6 +48,7 @@ const RegisterPage = () => {
     weight: '',
     hemoglobin: '',
     age: '',
+    gender: 'prefer_not_to_say',
     termsConsent: false,
     location: { lat: 0, lng: 0 }
   });
@@ -382,12 +383,19 @@ const RegisterPage = () => {
       payload.phone = fullPhone;
       payload.bloodGroup = formData.bloodGroup;
 
+      if (formData.gender) {
+        payload.gender = formData.gender;
+      }
+
       if (selectedRole === 'donor') {
         payload.donorHealthDetails = {
           weight: parseFloat(formData.weight),
           hemoglobin: parseFloat(formData.hemoglobin),
           age: parseInt(formData.age, 10)
         };
+        payload.age = parseInt(formData.age, 10);
+      } else if (selectedRole === 'recipient' && formData.age) {
+        payload.age = parseInt(formData.age, 10);
       }
     }
 
@@ -1007,6 +1015,44 @@ const RegisterPage = () => {
                       className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-transparent"
                     />
                   </div>
+
+                  {selectedRole === 'recipient' && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+                      <div>
+                        <label htmlFor="recipientAge" className="block text-sm font-semibold text-gray-700 mb-1">
+                          Age (years)
+                        </label>
+                        <input
+                          id="recipientAge"
+                          name="age"
+                          type="number"
+                          min="1"
+                          max="120"
+                          value={formData.age}
+                          onChange={handleChange}
+                          placeholder="e.g. 28 (optional)"
+                          className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor="recipientGender" className="block text-sm font-semibold text-gray-700 mb-1">
+                          Gender
+                        </label>
+                        <select
+                          id="recipientGender"
+                          name="gender"
+                          value={formData.gender}
+                          onChange={handleChange}
+                          className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-transparent bg-white"
+                        >
+                          <option value="prefer_not_to_say">Prefer not to say</option>
+                          <option value="male">Male</option>
+                          <option value="female">Female</option>
+                          <option value="other">Other</option>
+                        </select>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 

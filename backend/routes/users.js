@@ -50,15 +50,18 @@ const upload = multer({
 const router = express.Router();
 
 const updateProfileValidation = [
-  body('name').optional().notEmpty().withMessage('Name cannot be empty'),
-  body('hospitalName').optional().notEmpty().withMessage('Hospital name cannot be empty'),
-  body('phone').optional().isLength({ min: 10 }).withMessage('Phone must be at least 10 characters'),
-  body('contactNumber').optional().isLength({ min: 10 }).withMessage('Contact number must be at least 10 characters'),
-  body('location.lat').optional().isFloat({ min: -90, max: 90 }).withMessage('Invalid latitude'),
-  body('location.lng').optional().isFloat({ min: -180, max: 180 }).withMessage('Invalid longitude'),
-  body('donorHealthDetails.weight').optional().isFloat({ min: 50 }).withMessage('Weight must be at least 50kg'),
-  body('donorHealthDetails.hemoglobin').optional().isFloat({ min: 11 }).withMessage('Hemoglobin must be at least 11 g/dL'),
-  body('donorHealthDetails.age').optional().isInt({ min: 18 }).withMessage('Age must be at least 18'),
+  body('name').optional().trim(),
+  body('firstName').optional().trim(),
+  body('lastName').optional().trim(),
+  body('hospitalName').optional().trim(),
+  body('phone').optional().trim(),
+  body('contactNumber').optional().trim(),
+  body('emergencyContact').optional().trim(),
+  body('city').optional().trim(),
+  body('address').optional().trim(),
+  body('age').optional(),
+  body('weight').optional(),
+  body('hemoglobin').optional()
 ];
 
 const updateAvailabilityValidation = [

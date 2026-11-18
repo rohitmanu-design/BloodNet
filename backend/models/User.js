@@ -48,6 +48,20 @@ const userSchema = new mongoose.Schema({
     type: String,
     trim: true
   },
+  profileImage: {
+    type: String,
+    default: null
+  },
+  age: {
+    type: Number,
+    min: 0,
+    max: 120
+  },
+  gender: {
+    type: String,
+    enum: ['male', 'female', 'other', 'prefer_not_to_say'],
+    default: 'prefer_not_to_say'
+  },
   bloodGroup: {
     type: String,
     enum: ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']

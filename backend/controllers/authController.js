@@ -10,6 +10,7 @@ const DONOR_SCREENING_RULES = require('../config/donorRules');
 const { sendPasswordResetEmail, sendVerificationEmail, getEmailConfigStatus } = require('../config/emailService');
 const { sendVerificationSms, getSmsConfigStatus } = require('../config/smsService');
 const { normalizePhoneNumber, maskPhoneNumber, maskEmail } = require('../utils/phoneUtils');
+const { geocodeAddress } = require('../utils/geocoder');
 
 const getJwtSecret = () => {
   if (!process.env.JWT_SECRET) {
@@ -99,6 +100,18 @@ const register = async (req, res) => {
     const resolvedAddress = (address || location?.address || '').trim();
     const resolvedCity = (city || location?.city || '').trim();
 
+    let regLat = Number(location?.lat) || 0;
+    let regLng = Number(location?.lng) || 0;
+    if ((regLat === 0 && regLng === 0) && (resolvedAddress || resolvedCity)) {
+      try {
+        const geo = await geocodeAddress(`${resolvedAddress} ${resolvedCity}`.trim());
+        if (geo && geo.lat && geo.lng) {
+          regLat = geo.lat;
+          regLng = geo.lng;
+        }
+      } catch (e) {}
+    }
+
     const userData = {
       role,
       email: cleanEmail,
@@ -115,12 +128,20 @@ const register = async (req, res) => {
       address: resolvedAddress,
       city: resolvedCity,
       location: {
-        lat: Number(location?.lat) || 0,
-        lng: Number(location?.lng) || 0,
+        lat: regLat,
+        lng: regLng,
         address: resolvedAddress,
         city: resolvedCity
       }
     };
+
+    if (req.body.age) {
+      const parsedAge = parseInt(req.body.age, 10);
+      if (!isNaN(parsedAge)) userData.age = parsedAge;
+    }
+    if (req.body.gender && ['male', 'female', 'other', 'prefer_not_to_say'].includes(req.body.gender)) {
+      userData.gender = req.body.gender;
+    }
 
     if (role === 'hospital') {
       userData.hospitalName = (hospitalName || '').trim();
@@ -160,6 +181,7 @@ const register = async (req, res) => {
           hemoglobin,
           age
         };
+        userData.age = age;
         userData.isAvailable = true;
       }
     }
