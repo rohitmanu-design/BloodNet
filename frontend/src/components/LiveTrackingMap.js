@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
+import { locationAPI } from '../services/api';
 import {
   MapPinIcon,
   ShieldCheckIcon,
@@ -35,6 +36,39 @@ const LiveTrackingMap = ({
   const [googleMapsReady, setGoogleMapsReady] = useState(false);
   const [googleMapsError, setGoogleMapsError] = useState(false);
   const [now, setNow] = useState(Date.now());
+  const [resolvedCoords, setResolvedCoords] = useState({});
+
+  // Dynamic geocoding for addresses that do not yet have numerical coordinates
+  useEffect(() => {
+    const addressesToLookup = [];
+    const reqLat = parseFloat(requesterLocation?.lat);
+    const reqLng = parseFloat(requesterLocation?.lng);
+    if ((isNaN(reqLat) || isNaN(reqLng) || (reqLat === 0 && reqLng === 0)) && requesterLocation?.address) {
+      addressesToLookup.push(requesterLocation.address);
+    }
+
+    const hospLat = parseFloat(hospitalInfo?.lat);
+    const hospLng = parseFloat(hospitalInfo?.lng);
+    if ((isNaN(hospLat) || isNaN(hospLng) || (hospLat === 0 && hospLng === 0)) && hospitalInfo?.address) {
+      addressesToLookup.push(hospitalInfo.address);
+    }
+
+    addressesToLookup.forEach(async (addr) => {
+      const cleanAddr = addr.trim();
+      if (!cleanAddr || resolvedCoords[cleanAddr]) return;
+      try {
+        const res = await locationAPI.geocode(cleanAddr);
+        if (res.data?.lat && res.data?.lng) {
+          setResolvedCoords(prev => ({
+            ...prev,
+            [cleanAddr]: { lat: res.data.lat, lng: res.data.lng }
+          }));
+        }
+      } catch (err) {
+        // Geocoding fallback silent
+      }
+    });
+  }, [requesterLocation, hospitalInfo, resolvedCoords]);
 
   // Periodically refresh relative time labels (e.g. "updated 12s ago")
   useEffect(() => {
@@ -102,59 +136,71 @@ const LiveTrackingMap = ({
   const points = useMemo(() => {
     const pts = [];
 
-    const reqLat = parseFloat(requesterLocation?.lat);
-    const reqLng = parseFloat(requesterLocation?.lng);
+    let reqLat = parseFloat(requesterLocation?.lat);
+    let reqLng = parseFloat(requesterLocation?.lng);
+    const reqAddr = (requesterLocation?.address || '').trim();
+    if ((isNaN(reqLat) || isNaN(reqLng) || (reqLat === 0 && reqLng === 0)) && reqAddr && resolvedCoords[reqAddr]) {
+      reqLat = resolvedCoords[reqAddr].lat;
+      reqLng = resolvedCoords[reqAddr].lng;
+    }
+
     if (!isNaN(reqLat) && !isNaN(reqLng) && (reqLat !== 0 || reqLng !== 0)) {
       pts.push({
         type: 'recipient',
         title: 'Recipient Destination',
         lat: reqLat,
         lng: reqLng,
-        address: requesterLocation.address || 'Recipient Location',
-        accuracy: requesterLocation.accuracy,
-        lastUpdated: requesterLocation.lastUpdated,
+        address: reqAddr || 'Recipient Location',
+        accuracy: requesterLocation?.accuracy,
+        lastUpdated: requesterLocation?.lastUpdated,
         color: '#EF4444',
         iconLetter: '♥',
         directionsUrl: `https://www.google.com/maps/dir/?api=1&destination=${reqLat},${reqLng}`
       });
-    } else if (requesterLocation?.address) {
+    } else if (reqAddr) {
       pts.push({
         type: 'recipient',
         title: 'Recipient Destination',
-        lat: 17.959,
-        lng: 73.884,
-        address: requesterLocation.address,
+        lat: null,
+        lng: null,
+        address: reqAddr,
         accuracy: null,
-        lastUpdated: requesterLocation.lastUpdated,
+        lastUpdated: requesterLocation?.lastUpdated,
         color: '#EF4444',
         iconLetter: '♥',
-        directionsUrl: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(requesterLocation.address)}`
+        directionsUrl: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(reqAddr)}`
       });
     }
 
-    const hospLat = parseFloat(hospitalInfo?.lat);
-    const hospLng = parseFloat(hospitalInfo?.lng);
+    let hospLat = parseFloat(hospitalInfo?.lat);
+    let hospLng = parseFloat(hospitalInfo?.lng);
+    const hospAddr = (hospitalInfo?.address || '').trim();
+    if ((isNaN(hospLat) || isNaN(hospLng) || (hospLat === 0 && hospLng === 0)) && hospAddr && resolvedCoords[hospAddr]) {
+      hospLat = resolvedCoords[hospAddr].lat;
+      hospLng = resolvedCoords[hospAddr].lng;
+    }
+
     if (!isNaN(hospLat) && !isNaN(hospLng) && (hospLat !== 0 || hospLng !== 0)) {
       pts.push({
         type: 'hospital',
-        title: hospitalInfo.hospitalName || 'Accepted Hospital',
+        title: hospitalInfo?.hospitalName || 'Accepted Hospital',
         lat: hospLat,
         lng: hospLng,
-        address: hospitalInfo.address || 'Medical Facility',
+        address: hospAddr || 'Medical Facility',
         verified: true,
-        directionsUrl: hospitalInfo.directionsUrl || `https://www.google.com/maps/dir/?api=1&destination=${hospLat},${hospLng}`,
+        directionsUrl: hospitalInfo?.directionsUrl || `https://www.google.com/maps/dir/?api=1&destination=${hospLat},${hospLng}`,
         color: '#2563EB',
         iconLetter: 'H'
       });
-    } else if (hospitalInfo?.address) {
+    } else if (hospAddr) {
       pts.push({
         type: 'hospital',
-        title: hospitalInfo.hospitalName || 'Accepted Hospital',
-        lat: 17.959,
-        lng: 73.884,
-        address: hospitalInfo.address,
+        title: hospitalInfo?.hospitalName || 'Accepted Hospital',
+        lat: null,
+        lng: null,
+        address: hospAddr,
         verified: true,
-        directionsUrl: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(hospitalInfo.address)}`,
+        directionsUrl: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(hospAddr)}`,
         color: '#2563EB',
         iconLetter: 'H'
       });
@@ -165,18 +211,18 @@ const LiveTrackingMap = ({
     if (!isNaN(donorLat) && !isNaN(donorLng) && (donorLat !== 0 || donorLng !== 0)) {
       pts.push({
         type: 'donor',
-        title: `Donor: ${donorInfo.name || 'Responding Donor'}`,
+        title: `Donor: ${donorInfo?.name || 'Responding Donor'}`,
         lat: donorLat,
         lng: donorLng,
-        accuracy: donorInfo.currentLocation?.accuracy,
-        lastUpdated: donorInfo.currentLocation?.lastUpdated,
+        accuracy: donorInfo?.currentLocation?.accuracy,
+        lastUpdated: donorInfo?.currentLocation?.lastUpdated,
         color: '#059669',
         iconLetter: 'D',
         directionsUrl: `https://www.google.com/maps/dir/?api=1&destination=${donorLat},${donorLng}`
       });
     }
     return pts;
-  }, [requesterLocation, hospitalInfo, donorInfo]);
+  }, [requesterLocation, hospitalInfo, donorInfo, resolvedCoords]);
 
   // Initialize or update Google Map
   useEffect(() => {
@@ -352,17 +398,31 @@ const LiveTrackingMap = ({
         />
 
         {/* Reliable Live OpenStreetMap view if Google Maps is offline or lacks credentials */}
-        {(!googleMapsReady || googleMapsError) && points[0] && (
-          <iframe
-            title="Interactive Live Map"
-            width="100%"
-            height="100%"
-            frameBorder="0"
-            scrolling="no"
-            src={`https://www.openstreetmap.org/export/embed.html?bbox=${points[0].lng - 0.04}%2C${points[0].lat - 0.04}%2C${points[0].lng + 0.04}%2C${points[0].lat + 0.04}&layer=mapnik&marker=${points[0].lat}%2C${points[0].lng}`}
-            style={{ border: 0 }}
-          />
-        )}
+        {(!googleMapsReady || googleMapsError) && (() => {
+          const validPt = points.find(p => p.lat && p.lng && (p.lat !== 0 || p.lng !== 0));
+          if (!validPt) {
+            return (
+              <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center text-gray-500 bg-gray-50">
+                <MapPinIcon className="w-10 h-10 text-gray-400 mb-2 animate-bounce" />
+                <p className="text-sm font-semibold text-gray-700">Resolving Location Map View...</p>
+                <p className="text-xs text-gray-500 mt-1 max-w-sm">
+                  {points[0]?.address ? `Locating "${points[0].address}"...` : 'Waiting for verified address or GPS coordinates.'}
+                </p>
+              </div>
+            );
+          }
+          return (
+            <iframe
+              title="Interactive Live Map"
+              width="100%"
+              height="100%"
+              frameBorder="0"
+              scrolling="no"
+              src={`https://www.openstreetmap.org/export/embed.html?bbox=${validPt.lng - 0.04}%2C${validPt.lat - 0.04}%2C${validPt.lng + 0.04}%2C${validPt.lat + 0.04}&layer=mapnik&marker=${validPt.lat}%2C${validPt.lng}`}
+              style={{ border: 0 }}
+            />
+          );
+        })()}
 
         {/* Floating Real-Time Status Pill on top of map */}
         <div className="absolute top-3 left-3 z-10 bg-white/95 backdrop-blur-md rounded-xl shadow-md border border-gray-200/80 px-3.5 py-2 text-xs flex items-center space-x-3">

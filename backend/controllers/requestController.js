@@ -5,6 +5,7 @@ const Notification = require('../models/Notification');
 const BloodInventory = require('../models/BloodInventory');
 const InventoryLog = require('../models/InventoryLog');
 const AuditLog = require('../models/AuditLog');
+const { geocodeAddress, reverseGeocode } = require('../utils/geocoder');
 
 const calculateDistance = (lat1, lon1, lat2, lon2) => {
   const R = 6371;
@@ -45,11 +46,29 @@ const createRequest = async (req, res) => {
 
     console.log('Extracted data:', { bloodGroup, location, urgency, unitsNeeded, notes });
 
-    // Location with explicit recipient consent controls
+    // Location with explicit recipient consent controls and dynamic geocoding
+    let reqLat = typeof location?.lat === 'number' ? location.lat : (parseFloat(location?.lat) || 0);
+    let reqLng = typeof location?.lng === 'number' ? location.lng : (parseFloat(location?.lng) || 0);
+    const reqAddress = location?.address || user.location?.address || 'Location provided upon request';
+
+    // If coordinates are missing or if address differs from user profile address, geocode dynamically
+    const isCustomAddress = location?.address && location.address.trim().toLowerCase() !== (user.location?.address || '').trim().toLowerCase();
+    if ((reqLat === 0 && reqLng === 0) || isCustomAddress) {
+      try {
+        const geoResult = await geocodeAddress(reqAddress);
+        if (geoResult && geoResult.lat && geoResult.lng) {
+          reqLat = geoResult.lat;
+          reqLng = geoResult.lng;
+        }
+      } catch (geoErr) {
+        console.warn('Geocoding request address error:', geoErr.message);
+      }
+    }
+
     const formattedLocation = {
-      address: location?.address || user.location?.address || 'Location provided upon request',
-      lat: typeof location?.lat === 'number' ? location.lat : (parseFloat(location?.lat) || 0),
-      lng: typeof location?.lng === 'number' ? location.lng : (parseFloat(location?.lng) || 0),
+      address: reqAddress,
+      lat: reqLat,
+      lng: reqLng,
       accuracy: typeof location?.accuracy === 'number' ? location.accuracy : null,
       lastUpdated: new Date(),
       shareWithHospitals: location?.shareWithHospitals !== false,
@@ -405,12 +424,26 @@ const respondToRequest = async (req, res) => {
 
         request.hospitalId = req.user.id;
         request.responseDate = new Date();
+
+        let hospLat = req.user.location?.lat || null;
+        let hospLng = req.user.location?.lng || null;
+        const hospAddress = req.user.location?.address || req.user.address || '';
+        if ((!hospLat || !hospLng || (hospLat === 0 && hospLng === 0)) && hospAddress) {
+          try {
+            const geoHosp = await geocodeAddress(hospAddress);
+            if (geoHosp && geoHosp.lat && geoHosp.lng) {
+              hospLat = geoHosp.lat;
+              hospLng = geoHosp.lng;
+            }
+          } catch (e) {}
+        }
+
         request.acceptedHospitalInfo = {
           hospitalId: req.user.id,
           hospitalName: req.user.hospitalName || req.user.name || 'Verified Hospital Center',
-          address: req.user.location?.address || req.user.address || 'Hospital Center',
-          lat: req.user.location?.lat || null,
-          lng: req.user.location?.lng || null,
+          address: hospAddress || 'Hospital Center',
+          lat: hospLat,
+          lng: hospLng,
           phone: req.user.contactNumber || req.user.phone || '',
           acceptedAt: new Date(),
           verified: true,

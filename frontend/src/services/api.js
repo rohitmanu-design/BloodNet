@@ -144,6 +144,11 @@ export const certificateAPI = {
 };
 
 
+export const locationAPI = {
+  geocode: (address) => api.get('/location/geocode', { params: { address } }),
+  reverse: (lat, lng) => api.get('/location/reverse', { params: { lat, lng } })
+};
+
 export const adminAPI = {
   getOverview: () => api.get('/admin/overview'),
   getMetrics: () => api.get('/admin/metrics'),

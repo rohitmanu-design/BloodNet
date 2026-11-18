@@ -3,7 +3,7 @@ import { useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
 import { useNotifications } from '../contexts/NotificationContext';
-import { requestAPI, userAPI } from '../services/api';
+import { requestAPI, userAPI, locationAPI } from '../services/api';
 import LiveTrackingMap from '../components/LiveTrackingMap';
 import { 
   HeartIcon, 
@@ -35,7 +35,8 @@ const RequestForm = ({ onSubmit }) => {
       address: user?.location?.address || '',
       lat: user?.location?.lat || 0,
       lng: user?.location?.lng || 0,
-      accuracy: null
+      accuracy: null,
+      placeName: ''
     },
     shareWithHospitals: true,
     shareWithDonors: true,
@@ -46,7 +47,8 @@ const RequestForm = ({ onSubmit }) => {
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
   const [detectingLocation, setDetectingLocation] = useState(false);
-  const [locationStatus, setLocationStatus] = useState(null); // 'detecting' | 'success' | 'denied' | 'unsupported'
+  const [geocodingInProgress, setGeocodingInProgress] = useState(false);
+  const [locationStatus, setLocationStatus] = useState(null); // 'detecting' | 'success' | 'geocoded' | 'denied' | 'unsupported'
 
   const handleGetLocation = () => {
     if (!navigator.geolocation) {
@@ -56,10 +58,22 @@ const RequestForm = ({ onSubmit }) => {
     setDetectingLocation(true);
     setLocationStatus('detecting');
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
+      async (pos) => {
+        const { latitude, longitude, accuracy } = pos.coords;
+        let resolvedAddress = `GPS: ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
+        let placeName = '';
+        try {
+          const revRes = await locationAPI.reverse(latitude, longitude);
+          if (revRes.data?.address) {
+            resolvedAddress = revRes.data.address;
+            placeName = revRes.data.displayName || '';
+          }
+        } catch (e) {
+          console.warn('Reverse geocode failed:', e.message);
+        }
+
         setDetectingLocation(false);
         setLocationStatus('success');
-        const { latitude, longitude, accuracy } = pos.coords;
         setFormData(prev => ({
           ...prev,
           location: {
@@ -67,7 +81,8 @@ const RequestForm = ({ onSubmit }) => {
             lat: latitude,
             lng: longitude,
             accuracy: Math.round(accuracy),
-            address: prev.location.address || `GPS: ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`
+            address: resolvedAddress,
+            placeName
           }
         }));
       },
@@ -80,6 +95,52 @@ const RequestForm = ({ onSubmit }) => {
     );
   };
 
+  const handleGeocodeAddress = async (addrToSearch) => {
+    const target = (addrToSearch || formData.location.address || '').trim();
+    if (!target) return;
+    setGeocodingInProgress(true);
+    try {
+      const res = await locationAPI.geocode(target);
+      if (res.data?.lat && res.data?.lng) {
+        setFormData(prev => ({
+          ...prev,
+          location: {
+            ...prev.location,
+            lat: res.data.lat,
+            lng: res.data.lng,
+            address: target,
+            placeName: res.data.displayName || ''
+          }
+        }));
+        setLocationStatus('geocoded');
+      } else {
+        setLocationStatus('not_found');
+      }
+    } catch (err) {
+      console.warn('Geocoding lookup error:', err);
+      setLocationStatus('not_found');
+    } finally {
+      setGeocodingInProgress(false);
+    }
+  };
+
+  const handleUseSavedAddress = () => {
+    if (user?.location?.address || user?.address) {
+      const savedAddr = user?.location?.address || user?.address;
+      setFormData(prev => ({
+        ...prev,
+        location: {
+          ...prev.location,
+          address: savedAddr,
+          lat: user?.location?.lat || 0,
+          lng: user?.location?.lng || 0,
+          placeName: ''
+        }
+      }));
+      handleGeocodeAddress(savedAddr);
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -87,15 +148,32 @@ const RequestForm = ({ onSubmit }) => {
     setSuccess(false);
     
     try {
+      let finalLat = parseFloat(formData.location.lat) || 0;
+      let finalLng = parseFloat(formData.location.lng) || 0;
+      const currentAddress = (formData.location.address || '').trim();
+
+      // If user typed an address and coordinates are zero, auto-geocode before submission
+      if (currentAddress && (finalLat === 0 && finalLng === 0)) {
+        try {
+          const geoRes = await locationAPI.geocode(currentAddress);
+          if (geoRes.data?.lat && geoRes.data?.lng) {
+            finalLat = geoRes.data.lat;
+            finalLng = geoRes.data.lng;
+          }
+        } catch (e) {
+          console.warn('Submit-time geocode fallback error:', e.message);
+        }
+      }
+
       // Prepare request data with proper location format and consent flags
       const requestData = {
         bloodGroup: formData.bloodGroup,
         urgency: formData.urgency,
         unitsNeeded: formData.unitsNeeded,
         location: {
-          address: formData.location.address,
-          lat: parseFloat(formData.location.lat) || 0,
-          lng: parseFloat(formData.location.lng) || 0,
+          address: currentAddress || 'Medical Facility',
+          lat: finalLat,
+          lng: finalLng,
           accuracy: formData.location.accuracy || undefined,
           shareWithHospitals: formData.shareWithHospitals !== false,
           shareWithDonors: formData.shareWithDonors !== false
@@ -124,13 +202,20 @@ const RequestForm = ({ onSubmit }) => {
       setFormData(prev => ({ ...prev, [name]: checked }));
     } else if (name.includes('.')) {
       const [parent, child] = name.split('.');
-      setFormData(prev => ({
-        ...prev,
-        [parent]: {
-          ...prev[parent],
-          [child]: value
+      setFormData(prev => {
+        const nextParent = { ...prev[parent], [child]: value };
+        // If address text changed manually, reset coordinates so stale GPS isn't retained
+        if (parent === 'location' && child === 'address') {
+          nextParent.lat = 0;
+          nextParent.lng = 0;
+          nextParent.placeName = '';
+          setLocationStatus(null);
         }
-      }));
+        return {
+          ...prev,
+          [parent]: nextParent
+        };
+      });
     } else {
       setFormData(prev => ({
         ...prev,
@@ -193,31 +278,58 @@ const RequestForm = ({ onSubmit }) => {
         </div>
 
         <div className="md:col-span-2">
-          <div className="flex items-center justify-between mb-2">
-            <label className="block text-sm font-medium text-gray-700">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+            <label className="block text-sm font-semibold text-gray-700">
               Address & Destination Location *
             </label>
-            <button
-              type="button"
-              onClick={handleGetLocation}
-              disabled={detectingLocation}
-              className="inline-flex items-center space-x-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-red-50 text-red-700 hover:bg-red-100 border border-red-200 transition-colors disabled:opacity-60"
-            >
-              <MapPinIcon className="h-4 w-4 text-red-600" />
-              <span>{detectingLocation ? 'Detecting GPS...' : '📍 Use My GPS Location'}</span>
-            </button>
+            <div className="flex flex-wrap items-center gap-1.5 text-xs">
+              <button
+                type="button"
+                onClick={handleGetLocation}
+                disabled={detectingLocation}
+                className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-red-50 text-red-700 hover:bg-red-100 border border-red-200 transition-colors disabled:opacity-60 font-medium"
+              >
+                <MapPinIcon className="h-3.5 w-3.5 text-red-600" />
+                <span>{detectingLocation ? 'Detecting...' : '📍 Use My GPS'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleGeocodeAddress()}
+                disabled={geocodingInProgress || !formData.location.address?.trim()}
+                className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 transition-colors disabled:opacity-50 font-medium"
+              >
+                <MagnifyingGlassIcon className="h-3.5 w-3.5 text-blue-600" />
+                <span>{geocodingInProgress ? 'Locating...' : '🔍 Pin on Map'}</span>
+              </button>
+              {(user?.location?.address || user?.address) && (
+                <button
+                  type="button"
+                  onClick={handleUseSavedAddress}
+                  className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-300 transition-colors font-medium"
+                >
+                  <span>🏠 Saved Address</span>
+                </button>
+              )}
+            </div>
           </div>
-          <input
-            type="text"
-            name="location.address"
-            value={formData.location.address}
-            onChange={handleChange}
-            required
-            placeholder="e.g. Ward 4B, City General Hospital, or Street Address"
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent text-sm"
-          />
+          <div className="relative">
+            <input
+              type="text"
+              name="location.address"
+              value={formData.location.address}
+              onChange={handleChange}
+              onBlur={() => {
+                if (formData.location.address && formData.location.lat === 0) {
+                  handleGeocodeAddress();
+                }
+              }}
+              required
+              placeholder="e.g. Ruby Hall Clinic, Pune or KEM Hospital, Mumbai or Street Address"
+              className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent text-sm"
+            />
+          </div>
 
-          {/* GPS feedback & explanation */}
+          {/* Location feedback and coordinates display */}
           {locationStatus === 'detecting' && (
             <p className="mt-1.5 text-xs text-blue-600 flex items-center gap-1">
               <span className="w-2 h-2 rounded-full bg-blue-500 animate-ping"></span>
@@ -225,15 +337,42 @@ const RequestForm = ({ onSubmit }) => {
             </p>
           )}
           {locationStatus === 'success' && (
-            <p className="mt-1.5 text-xs text-emerald-700 flex items-center gap-1">
-              <CheckCircleIcon className="h-4 w-4 text-emerald-600 inline" />
-              GPS locked (lat: {formData.location.lat.toFixed(4)}, lng: {formData.location.lng.toFixed(4)}{formData.location.accuracy ? `, ±${formData.location.accuracy}m` : ''})
+            <div className="mt-2 p-2.5 bg-emerald-50 border border-emerald-200 rounded-lg text-xs space-y-1">
+              <p className="text-emerald-800 font-semibold flex items-center gap-1">
+                <CheckCircleIcon className="h-4 w-4 text-emerald-600 inline" />
+                GPS Position Locked: {formData.location.lat.toFixed(4)}, {formData.location.lng.toFixed(4)}
+                {formData.location.accuracy ? ` (±${formData.location.accuracy}m)` : ''}
+              </p>
+              {formData.location.placeName && (
+                <p className="text-emerald-700 text-[11px] truncate">
+                  📍 {formData.location.placeName}
+                </p>
+              )}
+            </div>
+          )}
+          {locationStatus === 'geocoded' && (
+            <div className="mt-2 p-2.5 bg-blue-50 border border-blue-200 rounded-lg text-xs space-y-1">
+              <p className="text-blue-800 font-semibold flex items-center gap-1">
+                <CheckCircleIcon className="h-4 w-4 text-blue-600 inline" />
+                Location Verified on Map: {formData.location.lat.toFixed(4)}, {formData.location.lng.toFixed(4)}
+              </p>
+              {formData.location.placeName && (
+                <p className="text-blue-700 text-[11px] truncate">
+                  📍 {formData.location.placeName}
+                </p>
+              )}
+            </div>
+          )}
+          {locationStatus === 'not_found' && (
+            <p className="mt-1.5 text-xs text-amber-700 flex items-center gap-1">
+              <ExclamationTriangleIcon className="h-4 w-4 text-amber-600 inline" />
+              Could not resolve exact coordinates for this address. Your address text will still be shared directly with responders.
             </p>
           )}
           {locationStatus === 'denied' && (
             <p className="mt-1.5 text-xs text-amber-700 flex items-center gap-1">
               <ExclamationTriangleIcon className="h-4 w-4 text-amber-600 inline" />
-              GPS permission denied or unavailable. You can type your complete address manually above.
+              GPS permission denied or unavailable. Type your address above and click "Pin on Map".
             </p>
           )}
 
