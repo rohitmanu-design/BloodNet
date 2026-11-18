@@ -5,6 +5,7 @@ const {
   createRequest,
   getMyRequests,
   getNearbyRequests,
+  getDonorActiveDonation,
   respondToRequest,
   getRequestDetails,
   deleteRequest,
@@ -44,6 +45,7 @@ router.post('/create', auth, requireVerifiedContact, authorize('recipient', 'hos
 
 router.get('/my', auth, authorize('recipient'), getMyRequests);
 router.get('/nearby', auth, authorize('donor', 'hospital'), getNearbyRequests);
+router.get('/donor/active', auth, authorize('donor'), getDonorActiveDonation);
 
 // Secure Real-Time Tracking & Consent Endpoints
 router.get('/:requestId/tracking', auth, getRequestTracking);

@@ -102,6 +102,7 @@ export const requestAPI = {
   createRequest: (data) => api.post('/requests/create', data),
   getMyRequests: () => api.get('/requests/my'),
   getNearbyRequests: (params) => api.get('/requests/nearby', { params }),
+  getDonorActiveDonation: () => api.get('/requests/donor/active'),
   respondToRequest: (requestId, data) => api.put(`/requests/${requestId}/respond`, data),
   getRequestDetails: (requestId) => api.get(`/requests/${requestId}`),
   deleteRequest: (requestId) => api.delete(`/requests/${requestId}`),

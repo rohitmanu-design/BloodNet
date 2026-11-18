@@ -33,12 +33,22 @@ const LiveTrackingMap = ({
   const mapInstanceRef = useRef(null);
   const markersRef = useRef({});
   const [googleMapsReady, setGoogleMapsReady] = useState(false);
+  const [googleMapsError, setGoogleMapsError] = useState(false);
   const [now, setNow] = useState(Date.now());
 
   // Periodically refresh relative time labels (e.g. "updated 12s ago")
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 10000);
     return () => clearInterval(timer);
+  }, []);
+
+  // Catch Google Maps auth failure gracefully
+  useEffect(() => {
+    window.gm_authFailure = () => {
+      console.warn('Google Maps auth error or missing credentials. Falling back to OpenStreetMap interactive map.');
+      setGoogleMapsError(true);
+      setGoogleMapsReady(false);
+    };
   }, []);
 
   // Format relative timestamp
@@ -74,52 +84,95 @@ const LiveTrackingMap = ({
       script.async = true;
       script.defer = true;
       script.onload = () => setGoogleMapsReady(true);
-      script.onerror = () => setGoogleMapsReady(false);
+      script.onerror = () => {
+        setGoogleMapsReady(false);
+        setGoogleMapsError(true);
+      };
       document.head.appendChild(script);
     } else {
       existingScript.addEventListener('load', () => setGoogleMapsReady(true));
+      existingScript.addEventListener('error', () => {
+        setGoogleMapsReady(false);
+        setGoogleMapsError(true);
+      });
     }
   }, []);
 
   // Compute map center and active points
   const points = useMemo(() => {
     const pts = [];
-    if (requesterLocation?.lat && requesterLocation?.lng) {
+
+    const reqLat = parseFloat(requesterLocation?.lat);
+    const reqLng = parseFloat(requesterLocation?.lng);
+    if (!isNaN(reqLat) && !isNaN(reqLng) && (reqLat !== 0 || reqLng !== 0)) {
       pts.push({
         type: 'recipient',
-        title: 'Recipient Location',
-        lat: requesterLocation.lat,
-        lng: requesterLocation.lng,
-        address: requesterLocation.address,
+        title: 'Recipient Destination',
+        lat: reqLat,
+        lng: reqLng,
+        address: requesterLocation.address || 'Recipient Location',
         accuracy: requesterLocation.accuracy,
         lastUpdated: requesterLocation.lastUpdated,
         color: '#EF4444',
-        iconLetter: '♥'
+        iconLetter: '♥',
+        directionsUrl: `https://www.google.com/maps/dir/?api=1&destination=${reqLat},${reqLng}`
+      });
+    } else if (requesterLocation?.address) {
+      pts.push({
+        type: 'recipient',
+        title: 'Recipient Destination',
+        lat: 17.959,
+        lng: 73.884,
+        address: requesterLocation.address,
+        accuracy: null,
+        lastUpdated: requesterLocation.lastUpdated,
+        color: '#EF4444',
+        iconLetter: '♥',
+        directionsUrl: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(requesterLocation.address)}`
       });
     }
-    if (hospitalInfo?.lat && hospitalInfo?.lng) {
+
+    const hospLat = parseFloat(hospitalInfo?.lat);
+    const hospLng = parseFloat(hospitalInfo?.lng);
+    if (!isNaN(hospLat) && !isNaN(hospLng) && (hospLat !== 0 || hospLng !== 0)) {
       pts.push({
         type: 'hospital',
         title: hospitalInfo.hospitalName || 'Accepted Hospital',
-        lat: hospitalInfo.lat,
-        lng: hospitalInfo.lng,
+        lat: hospLat,
+        lng: hospLng,
+        address: hospitalInfo.address || 'Medical Facility',
+        verified: true,
+        directionsUrl: hospitalInfo.directionsUrl || `https://www.google.com/maps/dir/?api=1&destination=${hospLat},${hospLng}`,
+        color: '#2563EB',
+        iconLetter: 'H'
+      });
+    } else if (hospitalInfo?.address) {
+      pts.push({
+        type: 'hospital',
+        title: hospitalInfo.hospitalName || 'Accepted Hospital',
+        lat: 17.959,
+        lng: 73.884,
         address: hospitalInfo.address,
         verified: true,
-        directionsUrl: hospitalInfo.directionsUrl,
+        directionsUrl: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(hospitalInfo.address)}`,
         color: '#2563EB',
         iconLetter: 'H'
       });
     }
-    if (donorInfo?.currentLocation?.lat && donorInfo?.currentLocation?.lng) {
+
+    const donorLat = parseFloat(donorInfo?.currentLocation?.lat);
+    const donorLng = parseFloat(donorInfo?.currentLocation?.lng);
+    if (!isNaN(donorLat) && !isNaN(donorLng) && (donorLat !== 0 || donorLng !== 0)) {
       pts.push({
         type: 'donor',
         title: `Donor: ${donorInfo.name || 'Responding Donor'}`,
-        lat: donorInfo.currentLocation.lat,
-        lng: donorInfo.currentLocation.lng,
-        accuracy: donorInfo.currentLocation.accuracy,
-        lastUpdated: donorInfo.currentLocation.lastUpdated,
+        lat: donorLat,
+        lng: donorLng,
+        accuracy: donorInfo.currentLocation?.accuracy,
+        lastUpdated: donorInfo.currentLocation?.lastUpdated,
         color: '#059669',
-        iconLetter: 'D'
+        iconLetter: 'D',
+        directionsUrl: `https://www.google.com/maps/dir/?api=1&destination=${donorLat},${donorLng}`
       });
     }
     return pts;
@@ -253,64 +306,62 @@ const LiveTrackingMap = ({
         </div>
       </div>
 
+      {/* Quick Location Cards - ALWAYS Visible on top */}
+      <div className="p-3 bg-gray-50 border-b border-gray-200 flex flex-wrap gap-2 text-xs">
+        {points.length > 0 ? (
+          points.map((pt) => (
+            <div
+              key={pt.type}
+              className="flex items-center space-x-2 bg-white px-3 py-2 rounded-xl border border-gray-200 shadow-2xs"
+            >
+              <span
+                className="w-3 h-3 rounded-full flex-shrink-0"
+                style={{ backgroundColor: pt.color }}
+              />
+              <div>
+                <span className="font-bold text-gray-900 mr-1">{pt.title}:</span>
+                <span className="text-gray-700">{pt.address || `${pt.lat?.toFixed(4)}, ${pt.lng?.toFixed(4)}`}</span>
+              </div>
+              {pt.directionsUrl && (
+                <a
+                  href={pt.directionsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-600 hover:text-blue-800 font-bold flex items-center gap-0.5 ml-2 bg-blue-50 hover:bg-blue-100 px-2 py-1 rounded-md transition-colors"
+                >
+                  <span>Directions</span>
+                  <ArrowTopRightOnSquareIcon className="w-3 h-3" />
+                </a>
+              )}
+            </div>
+          ))
+        ) : (
+          <div className="text-xs text-gray-500 py-1">
+            📍 Coordinates pending GPS connection or participant confirmation.
+          </div>
+        )}
+      </div>
+
       {/* Map Container View */}
       <div className="relative w-full bg-gray-100 overflow-hidden" style={{ height }}>
         {/* Google Map element */}
         <div
           ref={mapContainerRef}
           className="w-full h-full"
-          style={{ display: googleMapsReady ? 'block' : 'none' }}
+          style={{ display: (googleMapsReady && !googleMapsError) ? 'block' : 'none' }}
         />
 
-        {/* Graceful Fallback Interactive SVG Map if Google Maps API key / network is offline */}
-        {!googleMapsReady && (
-          <div className="relative w-full h-full bg-gradient-to-br from-slate-50 via-gray-100 to-red-50/30 flex flex-col items-center justify-center p-6">
-            <svg className="absolute inset-0 w-full h-full opacity-40 pointer-events-none" xmlns="http://www.w3.org/2000/svg">
-              <defs>
-                <pattern id="grid-tracking" width="40" height="40" patternUnits="userSpaceOnUse">
-                  <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#cbd5e1" strokeWidth="0.8" />
-                </pattern>
-              </defs>
-              <rect width="100%" height="100%" fill="url(#grid-tracking)" />
-            </svg>
-
-            {/* Visual Markers inside SVG Canvas */}
-            <div className="relative z-10 w-full max-w-md bg-white/90 backdrop-blur-md p-5 rounded-2xl shadow-lg border border-gray-200 space-y-3">
-              <div className="flex items-center justify-between border-b pb-2">
-                <span className="text-xs font-bold text-gray-800 uppercase tracking-wide">Interactive Location Overview</span>
-                <span className="text-xs text-gray-500">Live coordinates active</span>
-              </div>
-
-              {points.map(pt => (
-                <div key={pt.type} className="flex items-start space-x-3 p-2.5 rounded-xl bg-gray-50 border border-gray-100">
-                  <div
-                    className="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm flex-shrink-0"
-                    style={{ backgroundColor: pt.color }}
-                  >
-                    {pt.iconLetter}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-bold text-gray-900">{pt.title}</p>
-                    <p className="text-xs text-gray-600 truncate">{pt.address || `${pt.lat.toFixed(4)}, ${pt.lng.toFixed(4)}`}</p>
-                    {pt.accuracy && (
-                      <p className="text-[10px] text-gray-400 mt-0.5">Accuracy: ±{Math.round(pt.accuracy)}m</p>
-                    )}
-                  </div>
-                  {pt.directionsUrl && (
-                    <a
-                      href={pt.directionsUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg text-xs"
-                      title="Open Google Maps Directions"
-                    >
-                      <ArrowTopRightOnSquareIcon className="w-4 h-4" />
-                    </a>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
+        {/* Reliable Live OpenStreetMap view if Google Maps is offline or lacks credentials */}
+        {(!googleMapsReady || googleMapsError) && points[0] && (
+          <iframe
+            title="Interactive Live Map"
+            width="100%"
+            height="100%"
+            frameBorder="0"
+            scrolling="no"
+            src={`https://www.openstreetmap.org/export/embed.html?bbox=${points[0].lng - 0.04}%2C${points[0].lat - 0.04}%2C${points[0].lng + 0.04}%2C${points[0].lat + 0.04}&layer=mapnik&marker=${points[0].lat}%2C${points[0].lng}`}
+            style={{ border: 0 }}
+          />
         )}
 
         {/* Floating Real-Time Status Pill on top of map */}

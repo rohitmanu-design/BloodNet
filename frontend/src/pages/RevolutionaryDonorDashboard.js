@@ -266,6 +266,36 @@ const RevolutionaryDonorDashboard = () => {
       
       // Calculate impact based on the data
       calculateImpact(historyData);
+
+      // Check if donor has an active ongoing donation in the database
+      try {
+        const activeRes = await requestAPI.getDonorActiveDonation();
+        if (activeRes.data?.hasActive && activeRes.data?.request) {
+          const req = activeRes.data.request;
+          const myResp = activeRes.data.myResponse;
+          const restoredActive = {
+            _id: req._id,
+            bloodGroup: req.bloodGroup,
+            unitsNeeded: req.unitsNeeded,
+            recipientName: req.recipientName || 'Recipient',
+            location: req.location,
+            shareLocation: myResp?.donorShareLocation !== false,
+            donorTrackingStatus: myResp?.trackingStatus || 'active'
+          };
+          setActiveDonation(restoredActive);
+          setDonorTrackingStatus(myResp?.trackingStatus || 'active');
+          localStorage.setItem('bloodnet_active_donation', JSON.stringify(restoredActive));
+          if (activeRes.data.tracking) {
+            setActiveDonationTracking(activeRes.data.tracking);
+          }
+        } else if (activeRes.data && !activeRes.data.hasActive) {
+          setActiveDonation(null);
+          setActiveDonationTracking(null);
+          localStorage.removeItem('bloodnet_active_donation');
+        }
+      } catch (actErr) {
+        console.warn('Active donation check failed:', actErr.message);
+      }
       
     } catch (error) {
       console.error('Critical error in fetchDashboardData:', error);
@@ -356,7 +386,7 @@ const RevolutionaryDonorDashboard = () => {
       // Load initial tracking record
       try {
         const trRes = await requestAPI.getRequestTracking(pendingAcceptRequest._id);
-        setActiveDonationTracking(trRes.data.tracking);
+        setActiveDonationTracking(trRes.data.tracking || trRes.data);
       } catch (trErr) {
         console.warn('Failed to load tracking data:', trErr.message);
       }
@@ -371,7 +401,76 @@ const RevolutionaryDonorDashboard = () => {
     }
   };
 
-  // Live GPS broadcaster for active donation while tab is open
+  // 1. Synchronize tracking stream and socket room whenever activeDonation is present
+  useEffect(() => {
+    if (!activeDonation?._id) {
+      setActiveDonationTracking(null);
+      return;
+    }
+
+    let isMounted = true;
+    socket?.emit('joinTrackingRoom', { requestId: activeDonation._id, userId: user?._id || user?.id });
+
+    const refreshTracking = async () => {
+      try {
+        const res = await requestAPI.getRequestTracking(activeDonation._id);
+        if (isMounted) {
+          setActiveDonationTracking(res.data.tracking || res.data);
+        }
+      } catch (err) {
+        console.warn('Tracking fetch error:', err.message);
+      }
+    };
+    refreshTracking();
+
+    const onTrackingStopped = (payload) => {
+      if (payload.requestId === activeDonation._id) {
+        notify('Donor coordination for this request has concluded.', 'info');
+        setActiveDonation(null);
+        setActiveDonationTracking(null);
+        localStorage.removeItem('bloodnet_active_donation');
+        if (watchIdRef.current !== null && navigator.geolocation) {
+          navigator.geolocation.clearWatch(watchIdRef.current);
+          watchIdRef.current = null;
+        }
+        fetchDashboardData();
+      }
+    };
+
+    const onLocationUpdate = (payload) => {
+      if (payload.requestId === activeDonation._id) {
+        setActiveDonationTracking(prev => {
+          if (!prev) return prev;
+          if (payload.senderRole === 'recipient' && payload.location) {
+            return {
+              ...prev,
+              requesterLocation: {
+                ...prev.requesterLocation,
+                lat: payload.location.lat,
+                lng: payload.location.lng,
+                accuracy: payload.location.accuracy,
+                lastUpdated: payload.location.lastUpdated,
+                isStale: false
+              }
+            };
+          }
+          return prev;
+        });
+      }
+    };
+
+    socket?.on('trackingStopped', onTrackingStopped);
+    socket?.on('trackingLocationUpdate', onLocationUpdate);
+
+    return () => {
+      isMounted = false;
+      socket?.emit('leaveTrackingRoom', { requestId: activeDonation._id });
+      socket?.off('trackingStopped', onTrackingStopped);
+      socket?.off('trackingLocationUpdate', onLocationUpdate);
+    };
+  }, [activeDonation?._id, socket, user]);
+
+  // 2. Live GPS broadcaster for active donation while tab is open
   useEffect(() => {
     if (!activeDonation || !activeDonation.shareLocation || donorTrackingStatus !== 'active') {
       if (watchIdRef.current !== null && navigator.geolocation) {
@@ -385,18 +484,6 @@ const RevolutionaryDonorDashboard = () => {
       console.warn('Geolocation not supported on this browser');
       return;
     }
-
-    socket?.emit('joinTrackingRoom', { requestId: activeDonation._id, userId: user?._id || user?.id });
-
-    const refreshTracking = async () => {
-      try {
-        const res = await requestAPI.getRequestTracking(activeDonation._id);
-        setActiveDonationTracking(res.data.tracking);
-      } catch (err) {
-        console.warn('Tracking fetch error:', err.message);
-      }
-    };
-    refreshTracking();
 
     watchIdRef.current = navigator.geolocation.watchPosition(
       (pos) => {
@@ -426,29 +513,13 @@ const RevolutionaryDonorDashboard = () => {
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
     );
 
-    const onTrackingStopped = (payload) => {
-      if (payload.requestId === activeDonation._id) {
-        notify('Donor coordination for this request has concluded.', 'info');
-        setActiveDonation(null);
-        localStorage.removeItem('bloodnet_active_donation');
-        if (watchIdRef.current !== null) {
-          navigator.geolocation.clearWatch(watchIdRef.current);
-          watchIdRef.current = null;
-        }
-        fetchDashboardData();
-      }
-    };
-
-    socket?.on('trackingStopped', onTrackingStopped);
-
     return () => {
       if (watchIdRef.current !== null && navigator.geolocation) {
         navigator.geolocation.clearWatch(watchIdRef.current);
         watchIdRef.current = null;
       }
-      socket?.off('trackingStopped', onTrackingStopped);
     };
-  }, [activeDonation, donorTrackingStatus, socket, user]);
+  }, [activeDonation, donorTrackingStatus]);
 
   const handleToggleDonorLocation = async () => {
     if (!activeDonation) return;
@@ -962,10 +1033,29 @@ const RevolutionaryDonorDashboard = () => {
                           </h3>
                           
                           <div className="space-y-2 text-gray-600">
-                            <p className="flex items-center">
-                              <MapPinIcon className="h-4 w-4 mr-2 text-blue-500" />
-                              {request.location?.address || 'Location not specified'}
-                            </p>
+                            <div className="flex flex-wrap items-center gap-1.5 text-sm">
+                              <MapPinIcon className="h-4 w-4 text-rose-500 shrink-0" />
+                              <span className="font-semibold text-gray-800">
+                                {request.location?.address || 'Location not specified'}
+                              </span>
+                              {request.approxDistanceKm && (
+                                <span className="ml-1 px-2 py-0.5 bg-blue-50 text-blue-700 text-xs font-medium rounded-full border border-blue-200">
+                                  ~{request.approxDistanceKm} km away
+                                </span>
+                              )}
+                              {request.location?.address && (
+                                <a
+                                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(request.location.address)}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 underline font-medium ml-1"
+                                >
+                                  <span>Map</span>
+                                  <ArrowTopRightOnSquareIcon className="h-3 w-3" />
+                                </a>
+                              )}
+                            </div>
                             <p className="flex items-center">
                               <ClockIcon className="h-4 w-4 mr-2 text-green-500" />
                               {new Date(request.createdAt).toLocaleDateString()}

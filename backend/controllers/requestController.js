@@ -215,48 +215,50 @@ const getMyRequests = async (req, res) => {
 
 const getNearbyRequests = async (req, res) => {
   try {
-    const { maxDistance = 200 } = req.query;
+    const { maxDistance = 250 } = req.query;
     const user = await User.findById(req.user.id);
 
+    // Show pending requests as well as active/accepted requests needing donor support
     let query = {
-      status: 'pending',
-      'location.lat': { $exists: true },
-      'location.lng': { $exists: true }
+      status: { $in: ['pending', 'accepted', 'active'] }
     };
 
     // Don't filter by bloodGroup - show all requests for friend referrals
     const requests = await Request.find(query)
       .populate('requesterId', 'name phone')
+      .populate('acceptedHospitalInfo.hospitalId', 'hospitalName address contactNumber')
       .sort({ createdAt: -1 });
 
     const nearbyRequests = requests
       .filter(request => {
-        if (!user.location?.lat || !user.location?.lng) return true;
+        // If user doesn't have GPS coordinates, return all requests
+        if (!user?.location?.lat || !user?.location?.lng) return true;
+        // If request doesn't have GPS, still show so donors see local addresses
+        if (!request.location?.lat || !request.location?.lng) return true;
         const distance = calculateDistance(
           user.location.lat, user.location.lng,
-          request.location?.lat || 0, request.location?.lng || 0
+          request.location.lat, request.location.lng
         );
         return distance <= maxDistance;
       })
       .map(request => {
         const plain = request.toObject();
         let distance = null;
-        if (user.location?.lat && user.location?.lng && plain.location?.lat && plain.location?.lng) {
+        if (user?.location?.lat && user?.location?.lng && plain.location?.lat && plain.location?.lng) {
           distance = Math.round(calculateDistance(
             user.location.lat, user.location.lng,
             plain.location.lat, plain.location.lng
           ) * 10) / 10;
         }
 
-        // Privacy control: Mask exact GPS in public/unaccepted search results.
-        // Full coordinates and tracking are only granted once the responder accepts and recipient consented.
         return {
           ...plain,
           approxDistanceKm: distance,
           location: {
-            address: plain.location?.address || 'Location provided upon acceptance',
-            lat: plain.location?.lat ? Math.round(plain.location.lat * 100) / 100 : 0,
-            lng: plain.location?.lng ? Math.round(plain.location.lng * 100) / 100 : 0
+            address: plain.location?.address || 'Location provided upon request',
+            lat: plain.location?.lat || 0,
+            lng: plain.location?.lng || 0,
+            accuracy: plain.location?.accuracy || null
           }
         };
       });
@@ -265,6 +267,42 @@ const getNearbyRequests = async (req, res) => {
   } catch (error) {
     console.error('Get nearby requests error:', error);
     res.status(500).json({ message: 'Server error fetching nearby requests' });
+  }
+};
+
+const getDonorActiveDonation = async (req, res) => {
+  try {
+    const activeRequest = await Request.findOne({
+      status: 'accepted',
+      'responses.responderId': req.user.id,
+      'responses.response': 'accepted'
+    })
+      .populate('requesterId', 'name phone location')
+      .populate('hospitalId', 'hospitalName contactNumber location')
+      .sort({ updatedAt: -1 });
+
+    if (!activeRequest) {
+      return res.json({ activeDonation: null });
+    }
+
+    const myResponse = activeRequest.responses?.find(
+      r => r.responderId?.toString() === req.user.id.toString() && r.response === 'accepted'
+    );
+
+    res.json({
+      activeDonation: {
+        _id: activeRequest._id,
+        bloodGroup: activeRequest.bloodGroup,
+        unitsNeeded: activeRequest.unitsNeeded,
+        recipientName: activeRequest.recipientName || activeRequest.requesterId?.name || 'Recipient',
+        location: activeRequest.location,
+        shareLocation: myResponse?.donorShareLocation || false,
+        trackingStatus: myResponse?.trackingStatus || 'active'
+      }
+    });
+  } catch (err) {
+    console.error('Get donor active donation error:', err);
+    res.status(500).json({ message: 'Server error retrieving donor active donation' });
   }
 };
 
@@ -703,7 +741,7 @@ const getRequestTracking = async (req, res) => {
       };
     }
 
-    res.json({
+    const trackingData = {
       requestId: request._id,
       status: request.status,
       bloodGroup: request.bloodGroup,
@@ -714,8 +752,18 @@ const getRequestTracking = async (req, res) => {
       requesterLocation,
       hospitalInfo,
       donorInfo,
+      activeDonor: donorInfo,
+      allDonors: allAcceptedDonors,
       allAcceptedDonors,
+      shareWithHospitals: request.location?.shareWithHospitals !== false,
+      shareWithDonors: request.location?.shareWithDonors !== false,
       activeDonorId: request.activeDonorId || request.donorId || null
+    };
+
+    res.json({
+      success: true,
+      tracking: trackingData,
+      ...trackingData
     });
   } catch (error) {
     console.error('Get request tracking error:', error);
@@ -981,6 +1029,7 @@ module.exports = {
   createRequest,
   getMyRequests,
   getNearbyRequests,
+  getDonorActiveDonation,
   respondToRequest,
   getRequestDetails,
   deleteRequest,

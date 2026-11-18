@@ -353,7 +353,7 @@ const RecipientDashboard = () => {
     setTrackingError(null);
     try {
       const res = await requestAPI.getRequestTracking(req._id);
-      setTrackingData(res.data.tracking);
+      setTrackingData(res.data.tracking || res.data);
       socket?.emit('joinTrackingRoom', { requestId: req._id, userId: user?._id || user?.id });
     } catch (err) {
       console.error('Failed to get tracking details:', err);
