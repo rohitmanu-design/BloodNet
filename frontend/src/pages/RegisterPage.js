@@ -282,29 +282,27 @@ const RegisterPage = () => {
       if (formData.weight === '' || formData.weight === undefined || isNaN(weightNum)) {
         errs.weight = 'Weight in kg is required';
       } else if (weightNum <= 0) {
-        errs.weight = 'Please enter a valid positive weight';
+        errs.weight = 'Enter a valid positive weight';
       } else if (weightNum < donorRules.minWeightKg) {
-        errs.weight = `Eligibility requirement not met: Minimum donor weight is ${donorRules.minWeightKg} kg (you entered ${formData.weight} kg)`;
+        errs.weight = `Must be at least ${donorRules.minWeightKg} kg`;
       }
 
       const hgbNum = parseFloat(formData.hemoglobin);
       if (formData.hemoglobin === '' || formData.hemoglobin === undefined || isNaN(hgbNum)) {
         errs.hemoglobin = 'Hemoglobin level is required';
       } else if (hgbNum <= 0) {
-        errs.hemoglobin = 'Please enter a valid positive hemoglobin level';
+        errs.hemoglobin = 'Enter a valid positive level';
       } else if (hgbNum < donorRules.minHemoglobinGdl) {
-        errs.hemoglobin = `Eligibility requirement not met: Minimum hemoglobin level is ${donorRules.minHemoglobinGdl} g/dL (you entered ${formData.hemoglobin} g/dL)`;
+        errs.hemoglobin = `Must be at least ${donorRules.minHemoglobinGdl} g/dL`;
       }
 
       const ageNum = parseInt(formData.age, 10);
       if (formData.age === '' || formData.age === undefined || isNaN(ageNum)) {
         errs.age = 'Age is required';
       } else if (ageNum <= 0) {
-        errs.age = 'Please enter a valid positive age';
-      } else if (ageNum < donorRules.minAgeYears) {
-        errs.age = `Eligibility requirement not met: Donors must be at least ${donorRules.minAgeYears} years old (you entered ${formData.age} years)`;
-      } else if (ageNum > donorRules.maxAgeYears) {
-        errs.age = `Eligibility requirement not met: Donors must be under ${donorRules.maxAgeYears} years old (you entered ${formData.age} years)`;
+        errs.age = 'Enter a valid positive age';
+      } else if (ageNum < donorRules.minAgeYears || ageNum > donorRules.maxAgeYears) {
+        errs.age = `Must be ${donorRules.minAgeYears}–${donorRules.maxAgeYears} years`;
       }
     }
 
@@ -406,52 +404,6 @@ const RegisterPage = () => {
       setServerError(msg);
     }
   };
-
-  // Real-time screening eligibility evaluation for donors (allows entering any value without artificial clamping)
-  const weightStatus = (() => {
-    if (formData.weight === '' || formData.weight === undefined || formData.weight === null) return null;
-    const val = parseFloat(formData.weight);
-    if (isNaN(val) || val <= 0) return { valid: false, message: 'Please enter a valid weight in kg' };
-    if (val < donorRules.minWeightKg) {
-      return {
-        valid: false,
-        message: `Eligibility: Must be ≥ ${donorRules.minWeightKg} kg (entered: ${formData.weight} kg)`
-      };
-    }
-    return { valid: true, message: `Meets weight eligibility (≥ ${donorRules.minWeightKg} kg)` };
-  })();
-
-  const hemoglobinStatus = (() => {
-    if (formData.hemoglobin === '' || formData.hemoglobin === undefined || formData.hemoglobin === null) return null;
-    const val = parseFloat(formData.hemoglobin);
-    if (isNaN(val) || val <= 0) return { valid: false, message: 'Please enter a valid hemoglobin level' };
-    if (val < donorRules.minHemoglobinGdl) {
-      return {
-        valid: false,
-        message: `Eligibility: Must be ≥ ${donorRules.minHemoglobinGdl} g/dL (entered: ${formData.hemoglobin} g/dL)`
-      };
-    }
-    return { valid: true, message: `Meets hemoglobin eligibility (≥ ${donorRules.minHemoglobinGdl} g/dL)` };
-  })();
-
-  const ageStatus = (() => {
-    if (formData.age === '' || formData.age === undefined || formData.age === null) return null;
-    const val = parseInt(formData.age, 10);
-    if (isNaN(val) || val <= 0) return { valid: false, message: 'Please enter a valid age in years' };
-    if (val < donorRules.minAgeYears) {
-      return {
-        valid: false,
-        message: `Eligibility: Must be ≥ ${donorRules.minAgeYears} years (entered: ${formData.age} yrs)`
-      };
-    }
-    if (val > donorRules.maxAgeYears) {
-      return {
-        valid: false,
-        message: `Eligibility: Must be ≤ ${donorRules.maxAgeYears} years (entered: ${formData.age} yrs)`
-      };
-    }
-    return { valid: true, message: `Meets age eligibility (${donorRules.minAgeYears}–${donorRules.maxAgeYears} yrs)` };
-  })();
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-red-50 via-white to-teal-50 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
@@ -1062,27 +1014,17 @@ const RegisterPage = () => {
               {selectedRole === 'donor' && (
                 <div id="donor-screening-section" className="space-y-4 pt-2 border-t border-gray-100">
                   <div className="flex items-center justify-between">
-                    <div>
-                      <h4 className="text-sm font-bold text-gray-900 uppercase tracking-wide">
-                        Preliminary Donor Screening
-                      </h4>
-                      <p className="text-xs text-gray-500 mt-0.5">
-                        Enter your current physical metrics. Registration requires meeting minimum health guidelines.
-                      </p>
-                    </div>
-                    <span className="text-xs px-2.5 py-1 bg-gray-100 text-gray-600 font-semibold rounded-full hidden sm:inline-block">
-                      Health Guidelines
-                    </span>
+                    <h4 className="text-sm font-bold text-gray-900 uppercase tracking-wide">
+                      Preliminary Donor Screening
+                    </h4>
+                    <span className="text-xs text-gray-500 font-medium">Configurable Guidelines</span>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <label htmlFor="weight" className="block text-sm font-semibold text-gray-700">
-                          Weight (kg) *
-                        </label>
-                        <span className="text-xs text-gray-400 font-medium">Min {donorRules.minWeightKg} kg</span>
-                      </div>
+                      <label htmlFor="weight" className="block text-sm font-semibold text-gray-700 mb-1">
+                        Weight (kg) *
+                      </label>
                       <input
                         id="weight"
                         name="weight"
@@ -1090,41 +1032,20 @@ const RegisterPage = () => {
                         step="any"
                         value={formData.weight}
                         onChange={handleChange}
-                        placeholder={`e.g. 55 (Min ${donorRules.minWeightKg} kg)`}
-                        className={`w-full px-4 py-3 border rounded-xl transition-all focus:ring-2 focus:ring-red-500 focus:border-transparent ${
-                          errors.weight || (weightStatus && !weightStatus.valid)
-                            ? 'border-red-500 bg-red-50/40 text-red-900 focus:ring-red-400'
-                            : weightStatus && weightStatus.valid
-                            ? 'border-emerald-500 bg-emerald-50/30 text-gray-900 focus:ring-emerald-400'
-                            : 'border-gray-300'
+                        placeholder={`Min ${donorRules.minWeightKg} kg`}
+                        className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all ${
+                          errors.weight ? 'border-red-500 bg-red-50/30' : 'border-gray-300'
                         }`}
                       />
-                      {errors.weight ? (
-                        <p className="mt-1.5 text-xs font-semibold text-red-600 flex items-center gap-1">
-                          <ExclamationCircleIcon className="w-4 h-4 text-red-500 flex-shrink-0" />
-                          <span>{errors.weight}</span>
-                        </p>
-                      ) : weightStatus ? (
-                        <p className={`mt-1.5 text-xs font-medium flex items-center gap-1 ${
-                          weightStatus.valid ? 'text-emerald-700' : 'text-amber-700'
-                        }`}>
-                          {weightStatus.valid ? (
-                            <CheckCircleIcon className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-                          ) : (
-                            <ExclamationCircleIcon className="w-4 h-4 text-amber-500 flex-shrink-0" />
-                          )}
-                          <span>{weightStatus.message}</span>
-                        </p>
-                      ) : null}
+                      {errors.weight && (
+                        <p className="mt-1 text-xs text-red-600 font-medium">{errors.weight}</p>
+                      )}
                     </div>
 
                     <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <label htmlFor="hemoglobin" className="block text-sm font-semibold text-gray-700">
-                          Hemoglobin (g/dL) *
-                        </label>
-                        <span className="text-xs text-gray-400 font-medium">Min {donorRules.minHemoglobinGdl} g/dL</span>
-                      </div>
+                      <label htmlFor="hemoglobin" className="block text-sm font-semibold text-gray-700 mb-1">
+                        Hemoglobin (g/dL) *
+                      </label>
                       <input
                         id="hemoglobin"
                         name="hemoglobin"
@@ -1132,41 +1053,20 @@ const RegisterPage = () => {
                         step="any"
                         value={formData.hemoglobin}
                         onChange={handleChange}
-                        placeholder={`e.g. 13.5 (Min ${donorRules.minHemoglobinGdl} g/dL)`}
-                        className={`w-full px-4 py-3 border rounded-xl transition-all focus:ring-2 focus:ring-red-500 focus:border-transparent ${
-                          errors.hemoglobin || (hemoglobinStatus && !hemoglobinStatus.valid)
-                            ? 'border-red-500 bg-red-50/40 text-red-900 focus:ring-red-400'
-                            : hemoglobinStatus && hemoglobinStatus.valid
-                            ? 'border-emerald-500 bg-emerald-50/30 text-gray-900 focus:ring-emerald-400'
-                            : 'border-gray-300'
+                        placeholder={`Min ${donorRules.minHemoglobinGdl} g/dL`}
+                        className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all ${
+                          errors.hemoglobin ? 'border-red-500 bg-red-50/30' : 'border-gray-300'
                         }`}
                       />
-                      {errors.hemoglobin ? (
-                        <p className="mt-1.5 text-xs font-semibold text-red-600 flex items-center gap-1">
-                          <ExclamationCircleIcon className="w-4 h-4 text-red-500 flex-shrink-0" />
-                          <span>{errors.hemoglobin}</span>
-                        </p>
-                      ) : hemoglobinStatus ? (
-                        <p className={`mt-1.5 text-xs font-medium flex items-center gap-1 ${
-                          hemoglobinStatus.valid ? 'text-emerald-700' : 'text-amber-700'
-                        }`}>
-                          {hemoglobinStatus.valid ? (
-                            <CheckCircleIcon className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-                          ) : (
-                            <ExclamationCircleIcon className="w-4 h-4 text-amber-500 flex-shrink-0" />
-                          )}
-                          <span>{hemoglobinStatus.message}</span>
-                        </p>
-                      ) : null}
+                      {errors.hemoglobin && (
+                        <p className="mt-1 text-xs text-red-600 font-medium">{errors.hemoglobin}</p>
+                      )}
                     </div>
 
                     <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <label htmlFor="age" className="block text-sm font-semibold text-gray-700">
-                          Age (years) *
-                        </label>
-                        <span className="text-xs text-gray-400 font-medium">{donorRules.minAgeYears}–{donorRules.maxAgeYears} yrs</span>
-                      </div>
+                      <label htmlFor="age" className="block text-sm font-semibold text-gray-700 mb-1">
+                        Age (years) *
+                      </label>
                       <input
                         id="age"
                         name="age"
@@ -1174,32 +1074,14 @@ const RegisterPage = () => {
                         step="1"
                         value={formData.age}
                         onChange={handleChange}
-                        placeholder={`e.g. 25 (${donorRules.minAgeYears}–${donorRules.maxAgeYears} yrs)`}
-                        className={`w-full px-4 py-3 border rounded-xl transition-all focus:ring-2 focus:ring-red-500 focus:border-transparent ${
-                          errors.age || (ageStatus && !ageStatus.valid)
-                            ? 'border-red-500 bg-red-50/40 text-red-900 focus:ring-red-400'
-                            : ageStatus && ageStatus.valid
-                            ? 'border-emerald-500 bg-emerald-50/30 text-gray-900 focus:ring-emerald-400'
-                            : 'border-gray-300'
+                        placeholder={`Min ${donorRules.minAgeYears}`}
+                        className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all ${
+                          errors.age ? 'border-red-500 bg-red-50/30' : 'border-gray-300'
                         }`}
                       />
-                      {errors.age ? (
-                        <p className="mt-1.5 text-xs font-semibold text-red-600 flex items-center gap-1">
-                          <ExclamationCircleIcon className="w-4 h-4 text-red-500 flex-shrink-0" />
-                          <span>{errors.age}</span>
-                        </p>
-                      ) : ageStatus ? (
-                        <p className={`mt-1.5 text-xs font-medium flex items-center gap-1 ${
-                          ageStatus.valid ? 'text-emerald-700' : 'text-amber-700'
-                        }`}>
-                          {ageStatus.valid ? (
-                            <CheckCircleIcon className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-                          ) : (
-                            <ExclamationCircleIcon className="w-4 h-4 text-amber-500 flex-shrink-0" />
-                          )}
-                          <span>{ageStatus.message}</span>
-                        </p>
-                      ) : null}
+                      {errors.age && (
+                        <p className="mt-1 text-xs text-red-600 font-medium">{errors.age}</p>
+                      )}
                     </div>
                   </div>
 
