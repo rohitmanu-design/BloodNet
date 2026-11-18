@@ -58,13 +58,19 @@ const GoogleMap = ({ requests, donors, hospitals, center, height = '400px' }) =>
   const hospitalsData = hospitals && hospitals.length > 0 ? hospitals : mockHospitals;
 
   useEffect(() => {
+    const apiKey = process.env.REACT_APP_GOOGLE_MAPS_API_KEY;
+    if (!apiKey) {
+      setUseStaticMap(true);
+      return;
+    }
+
     // Set a timeout to fall back to static map if Google Maps takes too long
     const timeoutId = setTimeout(() => {
       if (!mapLoaded && !error) {
         setError('Google Maps loading timeout. Using static map instead.');
         setUseStaticMap(true);
       }
-    }, 5000); // 5 second timeout
+    }, 5000);
 
     // Check if Google Maps API is loaded
     const checkGoogleMaps = () => {
@@ -73,14 +79,13 @@ const GoogleMap = ({ requests, donors, hospitals, center, height = '400px' }) =>
         setMapLoaded(true);
         initializeMap();
       } else {
-        // Load Google Maps API
         loadGoogleMaps();
       }
     };
 
     const loadGoogleMaps = () => {
       const script = document.createElement('script');
-      script.src = `https://maps.googleapis.com/maps/api/js?key=AIzaSyB41DRUbKWJHPxaFjMAwdrzWzbVKartNGg&libraries=places&callback=initMap`;
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places&callback=initMap`;
       script.async = true;
       script.defer = true;
       
@@ -92,6 +97,7 @@ const GoogleMap = ({ requests, donors, hospitals, center, height = '400px' }) =>
       
       script.onerror = () => {
         setError('Failed to load Google Maps. Please check your internet connection.');
+        setUseStaticMap(true);
       };
       
       document.head.appendChild(script);

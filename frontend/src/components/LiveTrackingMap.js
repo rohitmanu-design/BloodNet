@@ -110,11 +110,19 @@ const LiveTrackingMap = ({
       return;
     }
 
+    const apiKey = process.env.REACT_APP_GOOGLE_MAPS_API_KEY;
+    if (!apiKey) {
+      // No Google Maps API key provided; cleanly use OpenStreetMap fallback
+      setGoogleMapsReady(false);
+      setGoogleMapsError(true);
+      return;
+    }
+
     const existingScript = document.getElementById('google-maps-script');
     if (!existingScript) {
       const script = document.createElement('script');
       script.id = 'google-maps-script';
-      script.src = `https://maps.googleapis.com/maps/api/js?key=AIzaSyB41DRUbKWJHPxaFjMAwdrzWzbVKartNGg&libraries=places`;
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
       script.async = true;
       script.defer = true;
       script.onload = () => setGoogleMapsReady(true);
