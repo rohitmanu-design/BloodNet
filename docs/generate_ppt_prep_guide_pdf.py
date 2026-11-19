@@ -1,0 +1,697 @@
+import os
+import subprocess
+
+def generate_prep_guide():
+    base_dir = r"c:\BloodNet\BloodNet"
+    docs_dir = os.path.join(base_dir, "docs")
+    os.makedirs(docs_dir, exist_ok=True)
+
+    html = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>BloodNet+ PPT Presentation Preparation & Viva Guide</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap');
+
+  @page {
+    size: A4;
+    margin: 14mm 14mm 14mm 14mm;
+    @bottom-right {
+      content: "Page " counter(page);
+      font-size: 8pt;
+      color: #94a3b8;
+    }
+    @bottom-left {
+      content: "BloodNet+ | PPT Presentation & Viva Guide";
+      font-size: 8pt;
+      color: #94a3b8;
+    }
+  }
+
+  * {
+    box-sizing: border-box;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  body {
+    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    color: #1e293b;
+    background: #ffffff;
+    line-height: 1.55;
+    font-size: 9.5pt;
+    margin: 0;
+    padding: 0;
+  }
+
+  .page-break {
+    page-break-after: always;
+    break-after: page;
+  }
+
+  /* Header Box */
+  .header-card {
+    background: linear-gradient(135deg, #b91c1c 0%, #dc2626 50%, #ef4444 100%);
+    color: #ffffff;
+    border-radius: 12px;
+    padding: 18px 22px;
+    margin-bottom: 16px;
+    box-shadow: 0 4px 12px rgba(220, 38, 38, 0.15);
+  }
+
+  .header-card h1 {
+    font-size: 18pt;
+    font-weight: 800;
+    margin: 0 0 4px 0;
+    letter-spacing: -0.3px;
+  }
+
+  .header-card h2 {
+    font-size: 11pt;
+    font-weight: 600;
+    margin: 0 0 10px 0;
+    color: #fee2e2;
+  }
+
+  .header-meta {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    background: rgba(0, 0, 0, 0.15);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 8.5pt;
+  }
+
+  .header-meta div strong {
+    display: block;
+    color: #fca5a5;
+    text-transform: uppercase;
+    font-size: 7.5pt;
+    letter-spacing: 0.5px;
+    margin-bottom: 2px;
+  }
+
+  /* Presentation Tips Banner */
+  .tips-box {
+    background: #f0fdf4;
+    border: 1px solid #bbf7d0;
+    border-left: 5px solid #16a34a;
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin-bottom: 16px;
+  }
+
+  .tips-box h3 {
+    margin: 0 0 4px 0;
+    color: #15803d;
+    font-size: 10pt;
+    font-weight: 700;
+  }
+
+  .tips-box p {
+    margin: 0;
+    font-size: 8.8pt;
+    color: #166534;
+  }
+
+  /* Slide Cards */
+  .slide-card {
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    margin-bottom: 14px;
+    background: #ffffff;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    page-break-inside: avoid;
+    overflow: hidden;
+  }
+
+  .slide-head {
+    background: #f8fafc;
+    border-bottom: 1px solid #e2e8f0;
+    padding: 8px 14px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .slide-tag {
+    font-size: 8.5pt;
+    font-weight: 800;
+    color: #dc2626;
+    background: #fee2e2;
+    padding: 3px 10px;
+    border-radius: 20px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .slide-title-text {
+    font-size: 10.5pt;
+    font-weight: 700;
+    color: #0f172a;
+    margin-left: 8px;
+    flex-grow: 1;
+  }
+
+  .slide-time {
+    font-size: 8pt;
+    font-weight: 600;
+    color: #64748b;
+  }
+
+  .slide-body {
+    padding: 12px 14px;
+  }
+
+  .speak-section {
+    background: #fef2f2;
+    border-radius: 6px;
+    padding: 9px 12px;
+    margin-bottom: 10px;
+    border-left: 3.5px solid #dc2626;
+  }
+
+  .speak-section h4 {
+    margin: 0 0 4px 0;
+    font-size: 8.5pt;
+    text-transform: uppercase;
+    color: #b91c1c;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+  }
+
+  .speak-section p {
+    margin: 0;
+    font-size: 9pt;
+    color: #450a0a;
+    line-height: 1.5;
+  }
+
+  .points-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+
+  .point-box {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 8px 10px;
+  }
+
+  .point-box h5 {
+    margin: 0 0 3px 0;
+    font-size: 8.5pt;
+    font-weight: 700;
+    color: #0f172a;
+  }
+
+  .point-box p {
+    margin: 0;
+    font-size: 8.2pt;
+    color: #475569;
+    line-height: 1.4;
+  }
+
+  .qa-box {
+    background: #f0fdf4;
+    border-radius: 6px;
+    padding: 8px 12px;
+    border-left: 3.5px solid #16a34a;
+    font-size: 8.5pt;
+  }
+
+  .qa-box strong.q {
+    color: #15803d;
+    display: block;
+    margin-bottom: 2px;
+  }
+
+  .qa-box span.a {
+    color: #14532d;
+    display: block;
+    line-height: 1.45;
+  }
+
+  /* Viva Section */
+  .viva-title {
+    font-size: 14pt;
+    font-weight: 800;
+    color: #0f172a;
+    border-bottom: 2px solid #dc2626;
+    padding-bottom: 6px;
+    margin: 20px 0 12px 0;
+  }
+
+  .viva-card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin-bottom: 10px;
+    page-break-inside: avoid;
+  }
+
+  .viva-card h4 {
+    margin: 0 0 4px 0;
+    font-size: 9.5pt;
+    color: #dc2626;
+    font-weight: 700;
+  }
+
+  .viva-card p {
+    margin: 0;
+    font-size: 9pt;
+    color: #334155;
+    line-height: 1.5;
+  }
+
+  .viva-card p strong {
+    color: #0f172a;
+  }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header-card">
+  <h1>BLOODNET+ : Presentation Speaking & Viva Guide</h1>
+  <h2>Real-Time Emergency Blood Donation & Management Platform</h2>
+  <div class="header-meta">
+    <div>
+      <strong>Project Team</strong>
+      Rohit S. Sanas &bull; Vighnesh N. Suryawanshi<br>
+      Rohit G. Sanas &bull; Manish R. Bodake
+    </div>
+    <div>
+      <strong>Project Guide</strong>
+      Mr. Kaisar Atar<br>
+      Dept. of AI & Data Science
+    </div>
+    <div>
+      <strong>Institute & Year</strong>
+      Arvind Gavali College of Engg, Satara<br>
+      B.Tech AI & DS (2026–27)
+    </div>
+  </div>
+</div>
+
+<div class="tips-box">
+  <h3>&bull; Quick Advice Before You Start Presenting</h3>
+  <p><strong>Time Target:</strong> Aim for <strong>8 to 10 minutes</strong> total (about <strong>45 seconds per slide</strong>). Don't read the slides word-by-word; look at the examiners and explain the simple story: <em>What was broken &rarr; How BloodNet+ fixes it in seconds &rarr; Live proof on cloud.</em></p>
+</div>
+
+<!-- ========================================================================= -->
+<!-- SLIDE 1: TITLE SLIDE -->
+<!-- ========================================================================= -->
+<div class="slide-card">
+  <div class="slide-head">
+    <span class="slide-tag">Slide 01</span>
+    <span class="slide-title-text">Title Slide & Introduction of Team</span>
+    <span class="slide-time">~30 Seconds</span>
+  </div>
+  <div class="slide-body">
+    <div class="speak-section">
+      <h4>What to Say (Script in Simple Words):</h4>
+      <p>"Respected guide Mr. Kaisar Atar sir, respected external examiners, and faculty members: Good morning. Today, our team—Rohit Sharad Sanas, Vighnesh Suryawanshi, Rohit Ganesh Sanas, and Manish Bodake from the Department of Artificial Intelligence and Data Science—is presenting our B.Tech final year project titled <strong>BLOODNET+ : Real-Time Emergency Blood Donation & Management Platform</strong>."</p>
+    </div>
+    <div class="points-grid">
+      <div class="point-box">
+        <h5>Key Points on Slide</h5>
+        <p>&bull; College: Arvind Gavali College of Engineering, Satara.<br>&bull; Dept: B.Tech AI & DS, Academic Year 2026–27.<br>&bull; Sawkar Institutes crest & project branding.</p>
+      </div>
+      <div class="point-box">
+        <h5>Your Mindset</h5>
+        <p>Speak with clear voice and positive body language. Introduce your group members confidently.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ========================================================================= -->
+<!-- SLIDE 2: INTRODUCTION -->
+<!-- ========================================================================= -->
+<div class="slide-card">
+  <div class="slide-head">
+    <span class="slide-tag">Slide 02</span>
+    <span class="slide-title-text">Introduction: The Emergency Blood Crisis</span>
+    <span class="slide-time">~45 Seconds</span>
+  </div>
+  <div class="slide-body">
+    <div class="speak-section">
+      <h4>What to Say (Script in Simple Words):</h4>
+      <p>"In India, blood is urgently needed for car accidents, ICU surgeries, and cancer treatments. Doctors call the first 60 minutes after trauma the <strong>Golden Hour</strong>. Today, families waste 4 to 8 hours calling old phone numbers or sharing messages on WhatsApp. <strong>BloodNet+</strong> solves this by acting like an instant emergency bridge—connecting patients, nearby donors, and hospital blood banks in seconds."</p>
+    </div>
+    <div class="points-grid">
+      <div class="point-box">
+        <h5>3 Key Features on this Slide</h5>
+        <p>1. Recipient, Donor & Hospital dedicated modes.<br>2. Haversine proximity matching.<br>3. Live WebSocket push tracking.</p>
+      </div>
+      <div class="point-box">
+        <h5>Screenshot Highlight</h5>
+        <p>Point to <strong>Figure 1.1</strong>: "This is our actual web modal where a user creates an emergency request in under 30 seconds."</p>
+      </div>
+    </div>
+    <div class="qa-box">
+      <strong class="q">Likely Examiner Question: "Why did you build a web platform instead of an Android app first?"</strong>
+      <span class="a"><strong>Answer:</strong> "Sir, during an emergency, family members cannot waste 10 minutes downloading an app from Play Store and setting permissions. A web platform opens instantly on any phone browser via a link."</span>
+    </div>
+  </div>
+</div>
+
+<!-- ========================================================================= -->
+<!-- SLIDE 3: PROBLEM STATEMENT -->
+<!-- ========================================================================= -->
+<div class="slide-card">
+  <div class="slide-head">
+    <span class="slide-tag">Slide 03</span>
+    <span class="slide-title-text">Problem Statement: The Need for BloodNet+</span>
+    <span class="slide-time">~45 Seconds</span>
+  </div>
+  <div class="slide-body">
+    <div class="speak-section">
+      <h4>What to Say (Script in Simple Words):</h4>
+      <p>"We identified 3 major problems with how blood is collected today: First, <strong>Critical Time Gaps</strong>—manual calling takes 4 to 12 hours. Second, <strong>Dormant Contacts</strong>—over 70% of numbers in static registries or Facebook posts are switched off or fake. Third, <strong>Transit Failures</strong>—hospitals operate in isolated data silos, and raw GPS pins lead drivers to alleyway dead ends. Our solution provides instant matching and verified street routing."</p>
+    </div>
+    <div class="points-grid">
+      <div class="point-box">
+        <h5>The 3 Problem Cards</h5>
+        <p>&bull; 01: Time delay (&gt;4 hours).<br>&bull; 02: 70% obsolete / dormant numbers.<br>&bull; 03: Data silos & transit dead ends.</p>
+      </div>
+      <div class="point-box">
+        <h5>Our Solution Summary</h5>
+        <p>Sub-second dispatch + turn-by-turn routing + tamper-proof digital certification.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="page-break"></div>
+
+<!-- ========================================================================= -->
+<!-- SLIDE 4: OBJECTIVES -->
+<!-- ========================================================================= -->
+<div class="slide-card">
+  <div class="slide-head">
+    <span class="slide-tag">Slide 04</span>
+    <span class="slide-title-text">Objectives of the Project</span>
+    <span class="slide-time">~45 Seconds</span>
+  </div>
+  <div class="slide-body">
+    <div class="speak-section">
+      <h4>What to Say (Script in Simple Words):</h4>
+      <p>"Our project had six clear engineering objectives: 1. Build dedicated portals for Recipients, Donors, Hospitals, and Admins. 2. Implement sub-second Haversine proximity calculations. 3. Enable live WebSocket alerts to notify donors in &lt;180ms. 4. Automate hospital 8-group stock updates with depletion alerts. 5. Generate tamper-proof SHA-256 QR certificates to motivate donors. 6. Validate the system with high uptime on cloud."</p>
+    </div>
+    <div class="points-grid">
+      <div class="point-box">
+        <h5>The 6 Core Objectives</h5>
+        <p>&bull; Full-stack platform &bull; Automated proximity &bull; Live transit coordination &bull; Hospital inventory hub &bull; Cryptographic certificates &bull; Empirical cloud validation.</p>
+      </div>
+      <div class="point-box">
+        <h5>Why It Matters</h5>
+        <p>Shows the examiners that you had clear, measurable goals from day one and achieved every single one.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ========================================================================= -->
+<!-- SLIDE 5: LITERATURE SURVEY -->
+<!-- ========================================================================= -->
+<div class="slide-card">
+  <div class="slide-head">
+    <span class="slide-tag">Slide 05</span>
+    <span class="slide-title-text">Literature Survey & Research Gap</span>
+    <span class="slide-time">~45 Seconds</span>
+  </div>
+  <div class="slide-body">
+    <div class="speak-section">
+      <h4>What to Say (Script in Simple Words):</h4>
+      <p>"We compared our system with existing solutions: <strong>e-RaktKosh</strong> tracks government stocks but is only a static view with no live donor push. <strong>Social Media groups</strong> have high misinformation and no medical verification. <strong>Hospital ERPs</strong> are closed inside individual hospitals. The <strong>Research Gap</strong> we solved is the lack of closed-loop live push dispatch, street routing, and fraud-proof digital recognition."</p>
+    </div>
+    <div class="qa-box">
+      <strong class="q">Likely Examiner Question: "How is your project different from the government's e-RaktKosh portal?"</strong>
+      <span class="a"><strong>Answer:</strong> "Sir, e-RaktKosh is an inventory reporting portal—it does not push notifications to nearby voluntary donors on their phones, does not give turn-by-turn transit routing to the hospital, and does not issue instant cryptographic QR certificates."</span>
+    </div>
+  </div>
+</div>
+
+<!-- ========================================================================= -->
+<!-- SLIDE 6: PROPOSED SYSTEM WORKFLOW -->
+<!-- ========================================================================= -->
+<div class="slide-card">
+  <div class="slide-head">
+    <span class="slide-tag">Slide 06</span>
+    <span class="slide-title-text">Proposed System: The 6-Step Workflow</span>
+    <span class="slide-time">~50 Seconds</span>
+  </div>
+  <div class="slide-body">
+    <div class="speak-section">
+      <h4>What to Say (Script in Simple Words):</h4>
+      <p>"Here is how BloodNet+ works in 6 simple steps: <strong>1. Emergency Request</strong>: Recipient logs requirement in 30 seconds. <strong>2. Proximity Matching</strong>: Haversine engine finds nearest donors. <strong>3. Push Notification</strong>: Server pushes alerts in &lt;180ms. <strong>4. Donor Acceptance</strong>: Donor clicks accept. <strong>5. Live Transit Routing</strong>: Opens Google Maps directly to the hospital address. <strong>6. Verified Certification</strong>: Hospital marks fulfillment and system awards a verified QR certificate."</p>
+    </div>
+    <div class="points-grid">
+      <div class="point-box">
+        <h5>4 Key Pillars at Bottom</h5>
+        <p>&bull; Multi-Role Portals &bull; Real-Time Dispatch &bull; Hospital Inventory &bull; Cryptographic Audit.</p>
+      </div>
+      <div class="point-box">
+        <h5>Speaking Tip</h5>
+        <p>Walk your hand across the 6 arrows on the slide to show the natural end-to-end flow.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="page-break"></div>
+
+<!-- ========================================================================= -->
+<!-- SLIDE 7: ARCHITECTURE & METHODOLOGY -->
+<!-- ========================================================================= -->
+<div class="slide-card">
+  <div class="slide-head">
+    <span class="slide-tag">Slide 07</span>
+    <span class="slide-title-text">System Architecture & Methodology</span>
+    <span class="slide-time">~50 Seconds</span>
+  </div>
+  <div class="slide-body">
+    <div class="speak-section">
+      <h4>What to Say (Script in Simple Words):</h4>
+      <p>"BloodNet+ uses a decoupled 3-tier architecture: <strong>Tier 1 is the Client</strong> (React 18 SPA with Tailwind CSS). <strong>Tier 2 is the Application Server</strong> (Node.js and Express with Socket.IO rooms for live event broadcasting). <strong>Tier 3 is the Data & Cloud layer</strong> (MongoDB Atlas with 2dsphere indexing and Render cloud hosting). Requests flow seamlessly from the user through the dispatch engine and hospital inventory service."</p>
+    </div>
+    <div class="qa-box">
+      <strong class="q">Likely Examiner Question: "What is the Haversine formula and why did you use it?"</strong>
+      <span class="a"><strong>Answer:</strong> "Sir, Earth is curved like a sphere. The Haversine formula calculates the exact great-circle distance between two latitude/longitude points on Earth. It gives us accurate distance in kilometers in less than a millisecond without heavy API calls."</span>
+    </div>
+  </div>
+</div>
+
+<!-- ========================================================================= -->
+<!-- SLIDE 8: TECHNOLOGIES USED -->
+<!-- ========================================================================= -->
+<div class="slide-card">
+  <div class="slide-head">
+    <span class="slide-tag">Slide 08</span>
+    <span class="slide-title-text">Technologies & Implementation</span>
+    <span class="slide-time">~45 Seconds</span>
+  </div>
+  <div class="slide-body">
+    <div class="speak-section">
+      <h4>What to Say (Script in Simple Words):</h4>
+      <p>"We selected modern, battle-tested technologies: <strong>Frontend</strong> uses React 18 and Tailwind CSS for a fast, responsive clinical interface. <strong>Backend</strong> runs Node.js, Express, and Socket.IO for real-time messaging. <strong>Database</strong> uses MongoDB Atlas with atomic transactions so blood bags are never double-booked. <strong>Deployment & Security</strong> is hosted on Render cloud with SHA-256 cryptographic verification."</p>
+    </div>
+    <div class="points-grid">
+      <div class="point-box">
+        <h5>Frontend & Backend</h5>
+        <p>React 18 SPA + Vite + Tailwind CSS &bull; Node.js + Express REST API + Socket.IO.</p>
+      </div>
+      <div class="point-box">
+        <h5>Database & Cloud</h5>
+        <p>MongoDB Atlas &bull; Render Cloud &bull; GitHub CI/CD &bull; SHA-256 QR.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ========================================================================= -->
+<!-- SLIDE 9: RESULTS & PERFORMANCE -->
+<!-- ========================================================================= -->
+<div class="slide-card">
+  <div class="slide-head">
+    <span class="slide-tag">Slide 09</span>
+    <span class="slide-title-text">Results & Performance Benchmarks</span>
+    <span class="slide-time">~50 Seconds</span>
+  </div>
+  <div class="slide-body">
+    <div class="speak-section">
+      <h4>What to Say (Script in Simple Words):</h4>
+      <p>"We verified our system across three live test scenarios: <strong>1. Emergency Request</strong>: Proximity distance calculated at ~1.1 km and 0 km with instant alerts. <strong>2. Highway Navigation</strong>: Generated 216 km / 4h 14m route via NH48 on Google Maps with zero dead ends. <strong>3. Hospital Stock</strong>: Demonstrated 8-group stock matrix with automatic red depletion alerts. Our cloud benchmarks show <strong>&lt;180ms latency</strong> and <strong>99.4% matching accuracy</strong>."</p>
+    </div>
+    <div class="qa-box">
+      <strong class="q">Likely Examiner Question: "Show me the proof that your system actually works live."</strong>
+      <span class="a"><strong>Answer:</strong> "Sir, please see Slide 9 screenshot: it shows our live prototype tested on Render Cloud. We have live donor tracking and an official scannable certificate generated with genuine SHA-256 hash."</span>
+    </div>
+  </div>
+</div>
+
+<div class="page-break"></div>
+
+<!-- ========================================================================= -->
+<!-- SLIDE 10: APPLICATIONS, ADVANTAGES & LIMITATIONS -->
+<!-- ========================================================================= -->
+<div class="slide-card">
+  <div class="slide-head">
+    <span class="slide-tag">Slide 10</span>
+    <span class="slide-title-text">Applications, Advantages & Limitations</span>
+    <span class="slide-time">~45 Seconds</span>
+  </div>
+  <div class="slide-body">
+    <div class="speak-section">
+      <h4>What to Say (Script in Simple Words):</h4>
+      <p>"<strong>Applications</strong> include Emergency ICUs, regional blood bank networks, and disaster management. <strong>Advantages</strong>: Sub-second dispatch saves the Golden Hour, Google Maps avoids dead ends, and QR certificates motivate donors. <strong>Limitations</strong>: Requires active internet connectivity and depends on registered voluntary donors in that locality."</p>
+    </div>
+    <div class="points-grid">
+      <div class="point-box">
+        <h5>Key Advantage</h5>
+        <p>Zero-leak privacy: phone numbers and live GPS coordinates are only shared after mutual consent.</p>
+      </div>
+      <div class="point-box">
+        <h5>Honest Limitation</h5>
+        <p>Examiners respect honesty—mentioning internet dependency shows engineering maturity.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ========================================================================= -->
+<!-- SLIDE 11: FUTURE SCOPE & CONCLUSION -->
+<!-- ========================================================================= -->
+<div class="slide-card">
+  <div class="slide-head">
+    <span class="slide-tag">Slide 11</span>
+    <span class="slide-title-text">Future Scope & Conclusion</span>
+    <span class="slide-time">~45 Seconds</span>
+  </div>
+  <div class="slide-body">
+    <div class="speak-section">
+      <h4>What to Say (Script in Simple Words):</h4>
+      <p>"For <strong>Future Scope</strong>, we plan to add: 1. Machine Learning models to predict blood shortages before festivals and dengue seasons. 2. IoT temperature sensors inside transport boxes. 3. Integration with the national e-RaktKosh portal. 4. Dedicated mobile apps with SMS fallback. In <strong>Conclusion</strong>, BloodNet+ successfully bridges the critical blood emergency gap with real-time automation and saves human lives."</p>
+    </div>
+  </div>
+</div>
+
+<!-- ========================================================================= -->
+<!-- SLIDE 12: REFERENCES & Q&A -->
+<!-- ========================================================================= -->
+<div class="slide-card">
+  <div class="slide-head">
+    <span class="slide-tag">Slide 12</span>
+    <span class="slide-title-text">References & Q&A (Thank You)</span>
+    <span class="slide-time">~30 Seconds</span>
+  </div>
+  <div class="slide-body">
+    <div class="speak-section">
+      <h4>What to Say (Script in Simple Words):</h4>
+      <p>"Here are our academic references including AABB blood banking standards, RFC WebSocket protocols, and Haversine mathematical papers. Our prototype is deployed live on Render, and our complete source code is on GitHub. Thank you very much! We are now open for your questions."</p>
+    </div>
+  </div>
+</div>
+
+<!-- ========================================================================= -->
+<!-- MASTER VIVA Q&A CHEAT SHEET -->
+<!-- ========================================================================= -->
+<div class="page-break"></div>
+
+<h2 class="viva-title">&bull; Master Viva Q&A Cheat Sheet (Top 10 Questions with Simple Answers)</h2>
+
+<div class="viva-card">
+  <h4>Q1: Why did you use WebSockets instead of regular HTTP requests?</h4>
+  <p><strong>Simple Answer:</strong> Regular HTTP requires the browser to constantly refresh or poll the server every few seconds, which is slow and wastes battery. WebSockets keep a permanent open channel, so the server can push an alert to the donor's screen in less than 180 milliseconds.</p>
+</div>
+
+<div class="viva-card">
+  <h4>Q2: What is the Haversine formula and how does it work?</h4>
+  <p><strong>Simple Answer:</strong> Since the Earth is round, simple straight-line math (Pythagoras) is inaccurate over real distances. The Haversine formula uses spherical trigonometry and latitude/longitude coordinates to calculate the true surface distance between two points in kilometers.</p>
+</div>
+
+<div class="viva-card">
+  <h4>Q3: How do you prevent fraud or fake donation certificates?</h4>
+  <p><strong>Simple Answer:</strong> Every certificate includes a unique SHA-256 cryptographic hash generated from the donor's ID, blood unit ID, and hospital signature. When anyone scans the QR code with their phone, it verifies this hash against our database. If anyone alters the certificate text, the hash won't match.</p>
+</div>
+
+<div class="viva-card">
+  <h4>Q4: How do you protect patient and donor privacy?</h4>
+  <p><strong>Simple Answer:</strong> We follow a strict zero-knowledge policy. When a request is created, donors only see the hospital name and approximate distance. Phone numbers and live GPS coordinates are hidden until both parties accept. Furthermore, all active tracking links automatically expire after 24 hours.</p>
+</div>
+
+<div class="viva-card">
+  <h4>Q5: What happens if two patients try to claim the last unit of O- blood at the same second?</h4>
+  <p><strong>Simple Answer:</strong> We use atomic MongoDB database transactions with locking. The first request decrements the inventory atomically. The second request is safely rejected with an "Out of Stock" notification, completely preventing double-booking.</p>
+</div>
+
+<div class="viva-card">
+  <h4>Q6: Why did you add Google Maps navigation if you already have GPS?</h4>
+  <p><strong>Simple Answer:</strong> GPS coordinates often point to the center of a hospital building or an alleyway behind the emergency room. Our system uses verified street addresses and Google Maps turn-by-turn routing so drivers arrive directly at the emergency reception gate without wasted time.</p>
+</div>
+
+<div class="viva-card">
+  <h4>Q7: What is the role of Artificial Intelligence in your project?</h4>
+  <p><strong>Simple Answer:</strong> As B.Tech AI & DS students, we structured BloodNet+ to gather live geographic and time-series donation data. In our Future Scope, we use predictive ML algorithms (Random Forest and LSTM time-series models) to forecast regional blood shortages 3 weeks ahead based on historical weather, festival, and dengue data.</p>
+</div>
+
+<div class="viva-card">
+  <h4>Q8: Where is your project hosted and can we test it right now?</h4>
+  <p><strong>Simple Answer:</strong> Yes, sir. It is deployed live on Render Cloud at <code>https://bloodnet-2.onrender.com/</code> with an automated CI/CD pipeline from GitHub. Any smartphone with internet can access it right now.</p>
+</div>
+
+<div class="viva-card">
+  <h4>Q9: What was the hardest challenge you faced while building this project?</h4>
+  <p><strong>Simple Answer:</strong> The hardest challenge was synchronizing real-time Socket.IO events with geospatial distance filtering so that only compatible donors within traveling range received the alert, without overloading server memory.</p>
+</div>
+
+<div class="viva-card">
+  <h4>Q10: What are the 8 standard blood groups managed in your hospital inventory?</h4>
+  <p><strong>Simple Answer:</strong> A+, A-, B+, B-, AB+, AB-, O+, and O-. Our dashboard monitors all 8 groups in real time and automatically flashes critical warnings when any stock drops below 5 units.</p>
+</div>
+
+</body>
+</html>
+"""
+
+    html_path = os.path.join(docs_dir, "BLOODNET_PPT_PREPARATION_GUIDE.html")
+    with open(html_path, "w", encoding="utf-8") as f:
+        f.write(html)
+    print(f"HTML Guide generated: {html_path}")
+
+    pdf_docs_path = os.path.join(docs_dir, "BLOODNET_PPT_PREPARATION_GUIDE.pdf")
+    pdf_root_path = os.path.join(base_dir, "BLOODNET_PPT_PREPARATION_GUIDE.pdf")
+    chrome_exe = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+    if not os.path.exists(chrome_exe):
+        chrome_exe = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
+
+    uri = "file:///" + html_path.replace("\\", "/")
+    cmd = [
+        chrome_exe,
+        "--headless=new",
+        "--disable-gpu",
+        "--no-pdf-header-footer",
+        f"--print-to-pdf={pdf_docs_path}",
+        uri
+    ]
+    print(f"Converting HTML to PDF via {chrome_exe}...")
+    res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    if res.returncode == 0 and os.path.exists(pdf_docs_path):
+        import shutil
+        shutil.copyfile(pdf_docs_path, pdf_root_path)
+        print(f"SUCCESS: PPT Prep Guide PDF generated successfully!")
+        print(f"  Docs: {pdf_docs_path} ({os.path.getsize(pdf_docs_path)} bytes)")
+        print(f"  Root: {pdf_root_path} ({os.path.getsize(pdf_root_path)} bytes)")
+    else:
+        print(f"Error generating PDF: returncode={res.returncode}, stderr={res.stderr}")
+
+if __name__ == "__main__":
+    generate_prep_guide()
