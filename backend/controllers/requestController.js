@@ -1702,7 +1702,8 @@ const updateRequestStatus = async (req, res) => {
     const { status } = req.body;
     const userId = req.user.id;
 
-    if (!['completed', 'cancelled'].includes(status)) {
+    const normalizedStatus = status === 'fulfilled' ? 'completed' : status;
+    if (!['completed', 'cancelled'].includes(normalizedStatus)) {
       return res.status(400).json({ message: 'Status must be completed or cancelled' });
     }
 
@@ -1723,8 +1724,8 @@ const updateRequestStatus = async (req, res) => {
       return res.status(403).json({ message: 'You do not have permission to update this request status' });
     }
 
-    request.status = status;
-    if (status === 'completed') {
+    request.status = normalizedStatus;
+    if (normalizedStatus === 'completed') {
       request.completedAt = new Date();
       if (isAcceptedDonor) {
         request.donorId = userId;
@@ -1735,7 +1736,7 @@ const updateRequestStatus = async (req, res) => {
         await releaseAllReservedInventory(request, 'Fulfilled by donor', userId);
       }
     }
-    if (status === 'cancelled') {
+    if (normalizedStatus === 'cancelled') {
       request.cancelledAt = new Date();
       // Safely release any unfulfilled hospital reservations
       await releaseAllReservedInventory(request, 'Request cancelled', userId);
@@ -1759,13 +1760,19 @@ const updateRequestStatus = async (req, res) => {
     if (global.io) {
       global.io.to(`request_${requestId}`).emit('trackingStopped', {
         requestId,
-        status,
-        reason: `Request has been marked as ${status}`
+        status: normalizedStatus,
+        reason: `Request has been marked as ${normalizedStatus}`
+      });
+      global.io.emit('bloodRequestUpdate', {
+        type: 'status_update',
+        requestId,
+        status: normalizedStatus,
+        request
       });
       global.io.emit('adminUpdate', { type: 'request_updated', request });
     }
 
-    res.json({ message: `Request successfully marked as ${status}`, request });
+    res.json({ message: `Request successfully marked as ${normalizedStatus}`, request });
   } catch (error) {
     console.error('Update request status error:', error);
     res.status(500).json({ message: 'Server error updating request status' });
