@@ -5,70 +5,197 @@ const User = require('../models/User');
 const Request = require('../models/Request');
 const auth = require('../middleware/auth');
 const QRCode = require('qrcode');
-const path = require('path');
 
-// Generate certificate after donation completion
-router.post('/generate/:donationId', auth, async (req, res) => {
+// Helper function to generate impact message
+function generateImpactMessage(totalDonations, certificateType) {
+  const messages = {
+    'first-time': 'Congratulations on taking your first noble step as a voluntary blood donor. Your compassion has ignited hope and saved a life!',
+    'milestone': `Outstanding milestone of ${totalDonations} voluntary blood donations! Your enduring dedication serves as a beacon of life and humanity in our community.`,
+    'emergency': 'Your rapid response to a critical emergency blood request directly saved a life in urgent need. Thank you for being a true everyday hero!',
+    'regular': 'Thank you for your selfless and voluntary blood donation. Because of your kindness, patients in critical need are given a second chance at life.'
+  };
+  return messages[certificateType] || messages['regular'];
+}
+
+// Auto-sync & retrieve all certificates for the authenticated donor
+router.get('/my-certificates', auth, async (req, res) => {
   try {
-    const { donationId } = req.params;
-    
-    // Get donation details
-    const donation = await Request.findById(donationId);
-    if (!donation) {
-      return res.status(404).json({ message: 'Donation not found' });
-    }
-
-    // Check if certificate already exists
-    const existingCertificate = await Certificate.findOne({ donationId });
-    if (existingCertificate) {
-      return res.status(400).json({ message: 'Certificate already generated for this donation' });
-    }
-
-    // Get donor details
-    const donor = await User.findById(donation.donorId);
+    const donorId = req.user.id;
+    const donor = await User.findById(donorId);
     if (!donor) {
       return res.status(404).json({ message: 'Donor not found' });
     }
 
-    // Count total donations for this donor
-    const totalDonations = await Request.countDocuments({ 
-      donorId: donation.donorId, 
-      status: 'completed' 
-    });
+    // Find all completed requests where this donor was the fulfilling responder
+    const completedRequests = await Request.find({
+      status: { $in: ['completed', 'fulfilled'] },
+      $or: [
+        { donorId: donorId },
+        { selectedResponderId: donorId },
+        { activeDonorId: donorId },
+        { 'responses.responderId': donorId, 'responses.status': { $in: ['selected', 'accepted'] } }
+      ]
+    }).sort({ completedAt: 1, createdAt: 1 });
 
-    // Determine certificate type
-    let certificateType = 'regular';
-    let milestoneBadge = null;
-    
-    if (totalDonations === 1) {
-      certificateType = 'first-time';
-    } else if (totalDonations % 10 === 0) {
-      certificateType = 'milestone';
-      milestoneBadge = `${totalDonations} Donations`;
-    } else if (donation.urgency === 'emergency') {
-      certificateType = 'emergency';
+    // Auto-generate certificates for any completed donation that does not have one yet
+    let donationIndex = 0;
+    for (const reqDoc of completedRequests) {
+      donationIndex++;
+      const existing = await Certificate.findOne({ donationId: reqDoc._id });
+      if (!existing) {
+        let certificateType = 'regular';
+        let milestoneBadge = null;
+        let certificateTitle = 'Certificate of Appreciation';
+
+        if (donationIndex === 1) {
+          certificateType = 'first-time';
+          milestoneBadge = '1st Donation Hero';
+          certificateTitle = 'First Blood Donation Certificate';
+        } else if (donationIndex % 5 === 0) {
+          certificateType = 'milestone';
+          milestoneBadge = `${donationIndex} Donations Milestone`;
+          certificateTitle = `${donationIndex}th Donation Milestone Certificate`;
+        } else if (reqDoc.urgency === 'critical' || reqDoc.urgency === 'emergency') {
+          certificateType = 'emergency';
+          milestoneBadge = 'Emergency Life Saver';
+          certificateTitle = 'Emergency Life Saver Certificate';
+        }
+
+        const certYear = new Date(reqDoc.completedAt || reqDoc.createdAt || Date.now()).getFullYear();
+        const certNum = `BLOOD-${certYear}-${Math.floor(100000 + Math.random() * 900000)}`;
+
+        let qrCode = null;
+        try {
+          const qrData = JSON.stringify({
+            certificateNumber: certNum,
+            donorName: donor.name,
+            bloodGroup: donor.bloodGroup || reqDoc.bloodGroup,
+            donationDate: reqDoc.completedAt || reqDoc.createdAt,
+            verified: true,
+            organization: 'BloodNet+'
+          });
+          qrCode = await QRCode.toDataURL(qrData);
+        } catch (qrErr) {
+          console.warn('QR code generation warning:', qrErr.message);
+        }
+
+        const units = reqDoc.unitsNeeded || 1;
+        const livesSaved = units * 3;
+        const loc = reqDoc.location?.address || [reqDoc.location?.city, reqDoc.location?.state].filter(Boolean).join(', ') || 'Authorized Collection Centre';
+        const hospName = reqDoc.hospitalName || reqDoc.acceptedHospitalInfo?.hospitalName || 'Verified Medical Centre';
+
+        const newCert = new Certificate({
+          donorId: donor._id,
+          donationId: reqDoc._id,
+          certificateNumber: certNum,
+          certificateTitle,
+          donorName: donor.name || 'Verified Donor',
+          bloodGroup: donor.bloodGroup || reqDoc.bloodGroup || 'Blood Donor',
+          donationDate: reqDoc.completedAt || reqDoc.createdAt || new Date(),
+          donationLocation: loc,
+          hospitalName: hospName,
+          livesSaved,
+          unitsDonated: units,
+          certificateType,
+          milestoneBadge,
+          totalDonations: donationIndex,
+          impactMessage: generateImpactMessage(donationIndex, certificateType),
+          qrCode
+        });
+
+        await newCert.save();
+      }
     }
 
-    // Generate QR code
-    const qrData = JSON.stringify({
-      certificateNumber: `BLOOD-${new Date().getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`,
+    // Return all certificates for this donor, newest first
+    const certificates = await Certificate.find({ donorId })
+      .sort({ donationDate: -1, createdAt: -1 })
+      .populate('donationId', 'urgency recipientName location bloodGroup unitsNeeded');
+
+    res.json(certificates);
+  } catch (error) {
+    console.error('Error fetching certificates:', error);
+    res.status(500).json({ message: 'Server error fetching certificates' });
+  }
+});
+
+// Explicit generate certificate route for a completed donation
+router.post('/generate/:donationId', auth, async (req, res) => {
+  try {
+    const { donationId } = req.params;
+    const donation = await Request.findById(donationId);
+    if (!donation) {
+      return res.status(404).json({ message: 'Donation request not found' });
+    }
+
+    const existingCertificate = await Certificate.findOne({ donationId });
+    if (existingCertificate) {
+      return res.json({ message: 'Certificate already exists', certificate: existingCertificate });
+    }
+
+    const donorId = donation.donorId || donation.selectedResponderId || donation.activeDonorId || req.user.id;
+    const donor = await User.findById(donorId);
+    if (!donor) {
+      return res.status(404).json({ message: 'Donor not found' });
+    }
+
+    const totalDonations = await Request.countDocuments({
+      status: { $in: ['completed', 'fulfilled'] },
+      $or: [
+        { donorId },
+        { selectedResponderId: donorId },
+        { activeDonorId: donorId }
+      ]
+    });
+
+    let certificateType = 'regular';
+    let milestoneBadge = null;
+    let certificateTitle = 'Certificate of Appreciation';
+
+    if (totalDonations <= 1) {
+      certificateType = 'first-time';
+      milestoneBadge = '1st Donation Hero';
+      certificateTitle = 'First Blood Donation Certificate';
+    } else if (totalDonations % 5 === 0) {
+      certificateType = 'milestone';
+      milestoneBadge = `${totalDonations} Donations Milestone`;
+      certificateTitle = `${totalDonations}th Donation Milestone Certificate`;
+    } else if (donation.urgency === 'critical' || donation.urgency === 'emergency') {
+      certificateType = 'emergency';
+      milestoneBadge = 'Emergency Life Saver';
+      certificateTitle = 'Emergency Life Saver Certificate';
+    }
+
+    const certYear = new Date().getFullYear();
+    const certNum = `BLOOD-${certYear}-${Math.floor(100000 + Math.random() * 900000)}`;
+
+    let qrCode = null;
+    try {
+      const qrData = JSON.stringify({
+        certificateNumber: certNum,
+        donorName: donor.name,
+        bloodGroup: donor.bloodGroup || donation.bloodGroup,
+        donationDate: donation.completedAt || new Date(),
+        verified: true,
+        organization: 'BloodNet+'
+      });
+      qrCode = await QRCode.toDataURL(qrData);
+    } catch (e) {}
+
+    const units = donation.unitsNeeded || 1;
+    const certificate = new Certificate({
       donorId: donor._id,
       donationId: donation._id,
-      verificationUrl: `${process.env.FRONTEND_URL}/verify-certificate`
-    });
-    
-    const qrCode = await QRCode.toDataURL(qrData);
-
-    // Create certificate
-    const certificate = new Certificate({
-      donorId: donation.donorId,
-      donationId: donation._id,
+      certificateNumber: certNum,
+      certificateTitle,
       donorName: donor.name,
-      bloodGroup: donor.bloodGroup,
+      bloodGroup: donor.bloodGroup || donation.bloodGroup,
       donationDate: donation.completedAt || new Date(),
-      donationLocation: donation.location || 'Blood Bank',
-      hospitalName: donation.hospitalName || 'General Hospital',
-      totalDonations,
+      donationLocation: donation.location?.address || 'Verified Facility',
+      hospitalName: donation.hospitalName || donation.acceptedHospitalInfo?.hospitalName || 'General Hospital',
+      livesSaved: units * 3,
+      unitsDonated: units,
+      totalDonations: Math.max(1, totalDonations),
       certificateType,
       milestoneBadge,
       qrCode,
@@ -77,53 +204,32 @@ router.post('/generate/:donationId', auth, async (req, res) => {
 
     await certificate.save();
 
-    // Update user with certificate reference
-    donor.certificates = donor.certificates || [];
-    donor.certificates.push(certificate._id);
-    await donor.save();
-
     res.status(201).json({
       message: 'Certificate generated successfully',
       certificate
     });
-
   } catch (error) {
     console.error('Error generating certificate:', error);
-    res.status(500).json({ message: 'Server error' });
+    res.status(500).json({ message: 'Server error generating certificate' });
   }
 });
 
-// Get all certificates for a donor
-router.get('/my-certificates', auth, async (req, res) => {
-  try {
-    const certificates = await Certificate.find({ donorId: req.user.id })
-      .sort({ createdAt: -1 })
-      .populate('donationId', 'urgency recipientName');
-
-    res.json(certificates);
-  } catch (error) {
-    console.error('Error fetching certificates:', error);
-    res.status(500).json({ message: 'Server error' });
-  }
-});
-
-// Get single certificate
+// Get single certificate by ID
 router.get('/:certificateId', auth, async (req, res) => {
   try {
     const certificate = await Certificate.findById(req.params.certificateId)
       .populate('donationId', 'urgency recipientName location')
-      .populate('donorId', 'name email');
+      .populate('donorId', 'name email bloodGroup');
 
     if (!certificate) {
       return res.status(404).json({ message: 'Certificate not found' });
     }
 
-    // Check ownership
-    if (certificate.donorId._id.toString() !== req.user.id) {
+    // Check ownership or admin
+    if (certificate.donorId._id.toString() !== req.user.id && req.user.role !== 'admin') {
       return res.status(403).json({ message: 'Access denied' });
     }
 
-    // Increment view count
     certificate.viewCount += 1;
     await certificate.save();
 
@@ -134,32 +240,33 @@ router.get('/:certificateId', auth, async (req, res) => {
   }
 });
 
-// Share certificate
+// Toggle share status for public viewing
 router.post('/:certificateId/share', auth, async (req, res) => {
   try {
     const certificate = await Certificate.findById(req.params.certificateId);
-
     if (!certificate) {
       return res.status(404).json({ message: 'Certificate not found' });
     }
 
-    // Check ownership
-    if (certificate.donorId.toString() !== req.user.id) {
+    if (certificate.donorId.toString() !== req.user.id && req.user.role !== 'admin') {
       return res.status(403).json({ message: 'Access denied' });
     }
 
-    certificate.isPublic = true;
-    certificate.sharedOn = new Date();
+    certificate.isPublic = !certificate.isPublic;
+    certificate.sharedOn = certificate.isPublic ? new Date() : null;
     await certificate.save();
 
-    res.json({ message: 'Certificate shared successfully' });
+    res.json({
+      message: certificate.isPublic ? 'Certificate shared publicly' : 'Certificate marked private',
+      isPublic: certificate.isPublic
+    });
   } catch (error) {
     console.error('Error sharing certificate:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-// Download certificate
+// Download printable high-resolution HTML certificate
 router.get('/:certificateId/download', auth, async (req, res) => {
   try {
     const certificate = await Certificate.findById(req.params.certificateId)
@@ -169,396 +276,365 @@ router.get('/:certificateId/download', auth, async (req, res) => {
       return res.status(404).json({ message: 'Certificate not found' });
     }
 
-    // Check ownership
-    if (certificate.donorId._id.toString() !== req.user.id) {
+    if (certificate.donorId._id.toString() !== req.user.id && req.user.role !== 'admin') {
       return res.status(403).json({ message: 'Access denied' });
     }
 
-    // Increment download count
     certificate.downloadCount += 1;
     await certificate.save();
 
-    // Generate certificate HTML for download
     const certificateHTML = generateCertificateHTML(certificate);
 
-    res.setHeader('Content-Type', 'text/html');
-    res.setHeader('Content-Disposition', `attachment; filename="blood-certificate-${certificate.certificateNumber}.html"`);
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="bloodnet-certificate-${certificate.certificateNumber}.html"`);
     res.send(certificateHTML);
-
   } catch (error) {
     console.error('Error downloading certificate:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-// Helper function to generate impact message
-function generateImpactMessage(totalDonations, certificateType) {
-  const messages = {
-    'first-time': "Thank you for your first life-saving blood donation! You've started an incredible journey of saving lives.",
-    'regular': "Your continued commitment to blood donation makes a real difference in our community.",
-    'milestone': `Amazing milestone! ${totalDonations} donations and counting. You're a true hero!`,
-    'emergency': "Your quick response in an emergency situation helped save precious lives. Thank you for being a hero!"
-  };
-  
-  return messages[certificateType] || messages['regular'];
-}
+// Helper function to generate clean, standard printable certificate HTML
+function generateCertificateHTML(cert) {
+  const donationDateStr = cert.donationDate
+    ? new Date(cert.donationDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+    : 'Verified Date';
+  const issueDateStr = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  const title = cert.certificateTitle || 'Certificate of Appreciation';
 
-// Helper function to generate certificate HTML
-function generateCertificateHTML(certificate) {
-  return `
-<!DOCTYPE html>
+  return `<!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Blood Donation Certificate</title>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=Crimson+Text:wght@400;600&family=Open+Sans:wght@400;600;700&display=swap');
-        
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            margin: 0;
-            padding: 20px;
-            background: #f5f5f5;
-            font-family: 'Crimson Text', serif;
-            color: #333;
-        }
-        
-        .certificate-container {
-            max-width: 900px;
-            margin: 0 auto;
-            background: white;
-            border: 8px solid #8B0000;
-            padding: 60px;
-            position: relative;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
-        }
-        
-        .certificate-container::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background-image: 
-                repeating-linear-gradient(45deg, transparent, transparent 35px, rgba(139, 0, 0, 0.03) 35px, rgba(139, 0, 0, 0.03) 70px),
-                repeating-linear-gradient(-45deg, transparent, transparent 35px, rgba(139, 0, 0, 0.03) 35px, rgba(139, 0, 0, 0.03) 70px);
-            pointer-events: none;
-        }
-        
-        .certificate-header {
-            text-align: center;
-            margin-bottom: 40px;
-            position: relative;
-            z-index: 1;
-        }
-        
-        .certificate-title {
-            font-family: 'Playfair Display', serif;
-            font-size: 54px;
-            font-weight: 900;
-            color: #8B0000;
-            margin: 0 0 10px 0;
-            line-height: 1.1;
-            letter-spacing: 2px;
-        }
-        
-        .certificate-subtitle {
-            font-family: 'Open Sans', sans-serif;
-            font-size: 18px;
-            font-weight: 600;
-            color: #555;
-            text-transform: uppercase;
-            letter-spacing: 3px;
-            margin: 0;
-        }
-        
-        .certificate-seal {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            width: 80px;
-            height: 80px;
-            border: 3px solid #8B0000;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: white;
-            font-weight: bold;
-            color: #8B0000;
-            font-size: 12px;
-            text-align: center;
-            line-height: 1.2;
-        }
-        
-        .certificate-body {
-            text-align: center;
-            margin: 40px 0;
-            position: relative;
-            z-index: 1;
-        }
-        
-        .certificate-text {
-            font-size: 20px;
-            line-height: 1.6;
-            color: #444;
-            margin-bottom: 30px;
-        }
-        
-        .recipient-name {
-            font-family: 'Playfair Display', serif;
-            font-size: 42px;
-            font-weight: 700;
-            color: #8B0000;
-            margin: 20px 0;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            border-bottom: 3px solid #8B0000;
-            display: inline-block;
-            padding: 0 20px 10px 20px;
-        }
-        
-        .certificate-details {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 30px;
-            margin: 40px 0;
-            text-align: left;
-        }
-        
-        .detail-row {
-            display: flex;
-            justify-content: space-between;
-            padding: 12px 0;
-            border-bottom: 1px solid #ddd;
-        }
-        
-        .detail-label {
-            font-family: 'Open Sans', sans-serif;
-            font-weight: 600;
-            color: #666;
-            font-size: 14px;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-        
-        .detail-value {
-            font-weight: 600;
-            color: #333;
-            font-size: 16px;
-        }
-        
-        .certificate-quote {
-            font-style: italic;
-            font-size: 18px;
-            color: #555;
-            margin: 30px 0;
-            padding: 20px;
-            background: #f9f9f9;
-            border-left: 4px solid #8B0000;
-            text-align: left;
-        }
-        
-        .certificate-footer {
-            margin-top: 50px;
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-end;
-            position: relative;
-            z-index: 1;
-        }
-        
-        .signature-section {
-            text-align: center;
-            flex: 1;
-        }
-        
-        .signature-line {
-            border-bottom: 2px solid #333;
-            width: 250px;
-            margin: 0 auto 10px;
-        }
-        
-        .signature-title {
-            font-family: 'Open Sans', sans-serif;
-            font-size: 14px;
-            color: #666;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-        
-        .certificate-info {
-            text-align: right;
-            font-family: 'Open Sans', sans-serif;
-            font-size: 12px;
-            color: #666;
-            line-height: 1.4;
-        }
-        
-        .certificate-number {
-            font-weight: 600;
-            color: #8B0000;
-        }
-        
-        .certificate-date {
-            margin-top: 5px;
-        }
-        
-        .blood-drop {
-            position: absolute;
-            bottom: 30px;
-            left: 30px;
-            width: 40px;
-            height: 50px;
-            background: #8B0000;
-            border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
-            transform: rotate(-15deg);
-            opacity: 0.8;
-        }
-        
-        .blood-drop::before {
-            content: '';
-            position: absolute;
-            top: 8px;
-            left: 8px;
-            width: 8px;
-            height: 8px;
-            background: rgba(255, 255, 255, 0.3);
-            border-radius: 50%;
-        }
-        
-        .milestone-badge {
-            position: absolute;
-            top: 20px;
-            left: 20px;
-            background: linear-gradient(135deg, #FFD700, #FFA500);
-            color: #8B0000;
-            padding: 12px 20px;
-            border-radius: 30px;
-            font-weight: bold;
-            font-size: 14px;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            box-shadow: 0 4px 15px rgba(255, 215, 0, 0.3);
-            z-index: 3;
-        }
-        
-        @media print {
-            body { 
-                background: white; 
-                padding: 0;
-            }
-            .certificate-container { 
-                box-shadow: none; 
-                border: 4px solid #8B0000;
-                padding: 40px;
-            }
-        }
-        
-        @media (max-width: 768px) {
-            .certificate-container {
-                padding: 30px;
-                border: 4px solid #8B0000;
-            }
-            
-            .certificate-title {
-                font-size: 36px;
-            }
-            
-            .recipient-name {
-                font-size: 28px;
-            }
-            
-            .certificate-details {
-                grid-template-columns: 1fr;
-                gap: 15px;
-            }
-            
-            .certificate-footer {
-                flex-direction: column;
-                gap: 30px;
-            }
-            
-            .certificate-info {
-                text-align: center;
-            }
-        }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${title} - ${cert.donorName}</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&family=Playfair+Display:ital,wght@0,600;0,800;1,400&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+
+    @page {
+      size: A4 landscape;
+      margin: 10mm;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background: #f8fafc;
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      color: #1e293b;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    .cert-frame {
+      width: 100%;
+      max-width: 1020px;
+      background: #ffffff;
+      border: 12px double #991b1b;
+      padding: 38px 48px;
+      position: relative;
+      box-shadow: 0 15px 35px rgba(0,0,0,0.12);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .cert-frame::before {
+      content: '';
+      position: absolute;
+      inset: 8px;
+      border: 2px solid #d97706;
+      pointer-events: none;
+    }
+
+    .cert-corner {
+      position: absolute;
+      width: 32px;
+      height: 32px;
+      border-color: #991b1b;
+      border-style: solid;
+      pointer-events: none;
+    }
+    .top-left { top: 14px; left: 14px; border-width: 4px 0 0 4px; }
+    .top-right { top: 14px; right: 14px; border-width: 4px 4px 0 0; }
+    .bottom-left { bottom: 14px; left: 14px; border-width: 0 0 4px 4px; }
+    .bottom-right { bottom: 14px; right: 14px; border-width: 0 4px 4px 0; }
+
+    .cert-header {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+
+    .cert-badge {
+      display: inline-block;
+      padding: 4px 16px;
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      border-radius: 9999px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: #b91c1c;
+      margin-bottom: 10px;
+    }
+
+    .cert-title {
+      font-family: 'Cinzel', serif;
+      font-size: 38px;
+      font-weight: 900;
+      color: #881337;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      line-height: 1.1;
+      margin-bottom: 6px;
+    }
+
+    .cert-subtitle {
+      font-size: 14px;
+      color: #64748b;
+      letter-spacing: 4px;
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+
+    .cert-body {
+      text-align: center;
+      margin: 24px 0;
+    }
+
+    .presented-text {
+      font-size: 15px;
+      color: #64748b;
+      font-style: italic;
+      margin-bottom: 8px;
+    }
+
+    .donor-name {
+      font-family: 'Playfair Display', serif;
+      font-size: 40px;
+      font-weight: 800;
+      color: #1e1b4b;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      display: inline-block;
+      border-bottom: 3px solid #d97706;
+      padding: 0 24px 8px 24px;
+      margin-bottom: 12px;
+    }
+
+    .appreciation-para {
+      max-width: 760px;
+      margin: 0 auto 24px;
+      font-size: 14px;
+      line-height: 1.6;
+      color: #334155;
+    }
+
+    .cert-stats-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      max-width: 860px;
+      margin: 0 auto 24px;
+    }
+
+    .stat-box {
+      background: #fff1f2;
+      border: 1px solid #fecdd3;
+      padding: 10px 14px;
+      border-radius: 8px;
+      text-align: center;
+    }
+
+    .stat-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      font-weight: 700;
+      color: #9f1239;
+      letter-spacing: 1px;
+    }
+
+    .stat-value {
+      font-size: 15px;
+      font-weight: 800;
+      color: #1e293b;
+      margin-top: 2px;
+    }
+
+    .cert-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      margin-top: 32px;
+      padding-top: 16px;
+      border-top: 1px dashed #cbd5e1;
+    }
+
+    .footer-col {
+      flex: 1;
+      text-align: center;
+    }
+
+    .signature-line {
+      width: 180px;
+      border-bottom: 2px solid #475569;
+      margin: 0 auto 6px auto;
+    }
+
+    .sign-name {
+      font-size: 12px;
+      font-weight: 700;
+      color: #1e293b;
+    }
+
+    .sign-title {
+      font-size: 10px;
+      color: #64748b;
+      text-transform: uppercase;
+    }
+
+    .seal-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .seal-circle {
+      width: 74px;
+      height: 74px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #b91c1c, #881337);
+      border: 3px solid #fbbf24;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      text-align: center;
+      box-shadow: 0 4px 12px rgba(185, 28, 28, 0.35);
+    }
+
+    .seal-text-top {
+      font-size: 8px;
+      font-weight: 800;
+      letter-spacing: 1px;
+      color: #fef08a;
+    }
+
+    .seal-text-main {
+      font-size: 10px;
+      font-weight: 900;
+      letter-spacing: 1px;
+    }
+
+    .qr-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+    }
+
+    .qr-img {
+      width: 64px;
+      height: 64px;
+      margin-bottom: 4px;
+      border: 1px solid #e2e8f0;
+      padding: 2px;
+      border-radius: 4px;
+    }
+
+    .cert-meta {
+      font-size: 9px;
+      color: #64748b;
+      line-height: 1.4;
+    }
+
+    @media print {
+      body {
+        padding: 0;
+        background: white;
+      }
+      .cert-frame {
+        box-shadow: none;
+        max-width: 100%;
+      }
+    }
+  </style>
 </head>
 <body>
-    <div class="certificate-container">
-        ${certificate.milestoneBadge ? `<div class="milestone-badge">${certificate.milestoneBadge}</div>` : ''}
-        
-        <div class="certificate-header">
-            <h1 class="certificate-title">Certificate of Appreciation</h1>
-            <p class="certificate-subtitle">Blood Donation</p>
-            <div class="certificate-seal">BLOODNET+</div>
-        </div>
-        
-        <div class="certificate-body">
-            <p class="certificate-text">
-                This certificate is proudly presented to
-            </p>
-            <div class="recipient-name">${certificate.donorName}</div>
-            
-            <div class="certificate-details">
-                <div class="detail-row">
-                    <span class="detail-label">Blood Group</span>
-                    <span class="detail-value">${certificate.bloodGroup}</span>
-                </div>
-                <div class="detail-row">
-                    <span class="detail-label">Donation Date</span>
-                    <span class="detail-value">${certificate.formattedDonationDate}</span>
-                </div>
-                <div class="detail-row">
-                    <span class="detail-label">Donation Location</span>
-                    <span class="detail-value">${certificate.donationLocation}</span>
-                </div>
-                <div class="detail-row">
-                    <span class="detail-label">Hospital</span>
-                    <span class="detail-value">${certificate.hospitalName}</span>
-                </div>
-                <div class="detail-row">
-                    <span class="detail-label">Total Donations</span>
-                    <span class="detail-value">${certificate.totalDonations}</span>
-                </div>
-                <div class="detail-row">
-                    <span class="detail-label">Lives Impacted</span>
-                    <span class="detail-value">${certificate.livesSaved}</span>
-                </div>
-            </div>
-            
-            <div class="certificate-quote">
-                "${certificate.impactMessage}"
-            </div>
-        </div>
-        
-        <div class="certificate-footer">
-            <div class="signature-section">
-                <div class="signature-line"></div>
-                <div class="signature-title">Director</div>
-                <div class="signature-title">BloodNet+ Foundation</div>
-            </div>
-            
-            <div class="certificate-info">
-                <div class="certificate-number">Certificate No: ${certificate.certificateNumber}</div>
-                <div class="certificate-date">Issued on ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</div>
-            </div>
-        </div>
-        
-        <div class="blood-drop"></div>
+  <div class="cert-frame">
+    <div class="cert-corner top-left"></div>
+    <div class="cert-corner top-right"></div>
+    <div class="cert-corner bottom-left"></div>
+    <div class="cert-corner bottom-right"></div>
+
+    <div class="cert-header">
+      <span class="cert-badge">Official BloodNet+ Award</span>
+      <h1 class="cert-title">${title}</h1>
+      <p class="cert-subtitle">Recognizing Voluntary Life-Saving Blood Donation</p>
     </div>
+
+    <div class="cert-body">
+      <p class="presented-text">This certificate is proudly awarded to</p>
+      <div class="donor-name">${cert.donorName}</div>
+      <p class="appreciation-para">
+        ${cert.impactMessage}
+      </p>
+
+      <div class="cert-stats-grid">
+        <div class="stat-box">
+          <div class="stat-label">Blood Group</div>
+          <div class="stat-value">${cert.bloodGroup}</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Units Donated</div>
+          <div class="stat-value">${cert.unitsDonated || 1} Unit(s)</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Estimated Lives Saved</div>
+          <div class="stat-value">${cert.livesSaved || 3} Lives</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Donation Date</div>
+          <div class="stat-value">${donationDateStr}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="cert-footer">
+      <div class="footer-col">
+        <div class="signature-line"></div>
+        <div class="sign-name">Dr. R. K. Sanas, MD</div>
+        <div class="sign-title">Medical Director • BloodNet+</div>
+      </div>
+
+      <div class="footer-col seal-wrap">
+        <div class="seal-circle">
+          <span class="seal-text-top">OFFICIAL</span>
+          <span class="seal-text-main">VERIFIED</span>
+          <span class="seal-text-top">BLOODNET</span>
+        </div>
+      </div>
+
+      <div class="footer-col qr-container">
+        ${cert.qrCode ? `<img src="${cert.qrCode}" class="qr-img" alt="Certificate QR" />` : ''}
+        <div class="cert-meta">
+          <strong>No:</strong> ${cert.certificateNumber}<br />
+          <strong>Issued:</strong> ${issueDateStr}
+        </div>
+      </div>
+    </div>
+  </div>
 </body>
-</html>
-  `;
+</html>`;
 }
 
 module.exports = router;

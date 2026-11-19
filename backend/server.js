@@ -175,6 +175,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/requests', requestRoutes);
 app.use('/api/hospitals', hospitalRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/certificates', require('./routes/certificates'));
 app.use('/api/location', require('./routes/location'));
 app.use('/api/admin', require('./routes/admin'));
 

@@ -16,6 +16,10 @@ const certificateSchema = new mongoose.Schema({
     required: true,
     unique: true
   },
+  certificateTitle: {
+    type: String,
+    default: 'Certificate of Appreciation'
+  },
   donorName: {
     type: String,
     required: true
@@ -39,6 +43,10 @@ const certificateSchema = new mongoose.Schema({
   livesSaved: {
     type: Number,
     default: 3
+  },
+  unitsDonated: {
+    type: Number,
+    default: 1
   },
   certificateType: {
     type: String,
@@ -82,40 +90,47 @@ const certificateSchema = new mongoose.Schema({
     default: 0
   }
 }, {
-  timestamps: true
+  timestamps: true,
+  toJSON: { virtuals: true },
+  toObject: { virtuals: true }
 });
 
 // Generate unique certificate number
-certificateSchema.pre('save', async function(next) {
+certificateSchema.pre('save', async function() {
   if (!this.certificateNumber) {
     const year = new Date().getFullYear();
     const random = Math.floor(100000 + Math.random() * 900000);
     this.certificateNumber = `BLOOD-${year}-${random}`;
   }
-  next();
+  if (!this.certificateTitle) {
+    switch(this.certificateType) {
+      case 'first-time':
+        this.certificateTitle = 'First Blood Donation Certificate';
+        break;
+      case 'milestone':
+        this.certificateTitle = `${this.totalDonations}th Donation Milestone Certificate`;
+        break;
+      case 'emergency':
+        this.certificateTitle = 'Emergency Life Saver Certificate';
+        break;
+      default:
+        this.certificateTitle = 'Certificate of Appreciation';
+    }
+  }
 });
 
 // Virtual for formatted donation date
 certificateSchema.virtual('formattedDonationDate').get(function() {
-  return this.donationDate.toLocaleDateString('en-US', {
+  return this.donationDate ? new Date(this.donationDate).toLocaleDateString('en-US', {
     year: 'numeric',
     month: 'long',
     day: 'numeric'
-  });
+  }) : '';
 });
 
-// Virtual for certificate title based on type
-certificateSchema.virtual('certificateTitle').get(function() {
-  switch(this.certificateType) {
-    case 'first-time':
-      return 'First Blood Donation Certificate';
-    case 'milestone':
-      return `${this.totalDonations}th Donation Milestone Certificate`;
-    case 'emergency':
-      return 'Emergency Blood Donation Certificate';
-    default:
-      return 'Blood Donation Certificate';
-  }
+// Virtual for issuedDate
+certificateSchema.virtual('issuedDate').get(function() {
+  return this.donationDate || this.createdAt || new Date();
 });
 
 module.exports = mongoose.model('Certificate', certificateSchema);
