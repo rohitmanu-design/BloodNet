@@ -57,6 +57,7 @@ const RevolutionaryDonorDashboard = () => {
 
   // State
   const [loading, setLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [activeSection, setActiveSection] = useState('requests'); // 'requests' | 'active' | 'camps' | 'history' | 'impact'
   const [requestFilter, setRequestFilter] = useState('all'); // 'all' | 'urgent' | 'matching'
   const [isAvailable, setIsAvailable] = useState(user?.isAvailable !== false);
@@ -210,6 +211,15 @@ const RevolutionaryDonorDashboard = () => {
       console.error('Critical error in fetchDashboardData:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await fetchDashboardData();
+    } finally {
+      setIsRefreshing(false);
     }
   };
 
@@ -698,6 +708,19 @@ const RevolutionaryDonorDashboard = () => {
                     📍 {user.location.address}
                   </span>
                 )}
+                <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700 border border-green-200">
+                  <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse mr-1.5" />
+                  Live Connected
+                </span>
+                <button
+                  type="button"
+                  onClick={handleRefresh}
+                  disabled={isRefreshing}
+                  className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-white text-gray-700 border border-gray-200 hover:bg-gray-50 shadow-sm transition-all hover:border-gray-300"
+                >
+                  <ArrowPathIcon className={`w-3.5 h-3.5 mr-1 ${isRefreshing ? 'animate-spin text-red-500' : 'text-gray-500'}`} />
+                  {isRefreshing ? 'Syncing...' : 'Refresh Data'}
+                </button>
               </div>
             </div>
 

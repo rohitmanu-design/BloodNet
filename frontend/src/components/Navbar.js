@@ -163,9 +163,23 @@ const Navbar = () => {
 
                 {/* User Menu */}
                 <div className="flex items-center space-x-3">
-                  <span className="text-sm text-gray-700">
-                    Welcome, {user?.name || user?.hospitalName}
-                  </span>
+                  <Link to="/profile" className="flex items-center space-x-2 group" title="View Profile">
+                    {user?.profileImage ? (
+                      <img
+                        src={user.profileImage.startsWith('http') || user.profileImage.startsWith('data:') ? user.profileImage : `/uploads/profiles/${user.profileImage}`}
+                        alt={user?.name || 'Profile'}
+                        className="w-7 h-7 rounded-full object-cover ring-2 ring-red-400/30 group-hover:ring-red-500 transition-all"
+                        onError={(e) => { e.target.style.display = 'none'; }}
+                      />
+                    ) : (
+                      <div className="w-7 h-7 rounded-full bg-red-100 flex items-center justify-center text-red-600 font-bold text-xs">
+                        {(user?.name || user?.hospitalName || 'U').charAt(0).toUpperCase()}
+                      </div>
+                    )}
+                    <span className="text-sm text-gray-700 group-hover:text-red-600 font-medium transition-colors">
+                      Welcome, {user?.name || user?.hospitalName}
+                    </span>
+                  </Link>
                   <button
                     onClick={handleLogout}
                     className="flex items-center space-x-1 px-3 py-2 text-sm text-gray-700 hover:text-red-600 hover:bg-red-50 rounded-md"

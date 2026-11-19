@@ -67,6 +67,7 @@ const ModernHospitalDashboard = () => {
   const [requestHistory, setRequestHistory] = useState([]);
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [showInventoryModal, setShowInventoryModal] = useState(false);
   const [showCampModal, setShowCampModal] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
@@ -250,6 +251,15 @@ const ModernHospitalDashboard = () => {
       console.error('Failed to fetch dashboard data:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await fetchDashboardData();
+    } finally {
+      setIsRefreshing(false);
     }
   };
 
@@ -616,7 +626,7 @@ const ModernHospitalDashboard = () => {
                   <p className="text-gray-600 mb-4">
                     Saving lives, one drop at a time. Your blood bank management hub.
                   </p>
-                  <div className="flex items-center space-x-4 text-sm text-gray-500">
+                  <div className="flex flex-wrap items-center gap-3 text-sm text-gray-500">
                     <span className="flex items-center">
                       <ClockIcon className="h-4 w-4 mr-1" />
                       Last updated: {new Date().toLocaleTimeString()}
@@ -625,6 +635,19 @@ const ModernHospitalDashboard = () => {
                       <HeartIcon className="h-4 w-4 mr-1" />
                       {stats?.totalBloodUnits || 0} lives ready to be saved
                     </span>
+                    <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700 border border-green-200">
+                      <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse mr-1.5" />
+                      Live Connected
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleRefresh}
+                      disabled={isRefreshing}
+                      className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-white text-gray-700 border border-gray-200 hover:bg-gray-50 shadow-sm transition-all hover:border-gray-300"
+                    >
+                      <ArrowPathIcon className={`w-3.5 h-3.5 mr-1 ${isRefreshing ? 'animate-spin text-red-500' : 'text-gray-500'}`} />
+                      {isRefreshing ? 'Syncing...' : 'Refresh Data'}
+                    </button>
                   </div>
                 </div>
                 <div className="hidden md:block">

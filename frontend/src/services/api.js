@@ -34,6 +34,10 @@ api.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+    // Let browser set multipart boundary when sending FormData
+    if (typeof FormData !== 'undefined' && config.data instanceof FormData) {
+      delete config.headers['Content-Type'];
+    }
     return config;
   },
   (error) => {
@@ -84,11 +88,15 @@ export const userAPI = {
   getProfile: () => api.get('/auth/profile'),
   getDonationHistory: () => api.get('/users/donation-history'),
   updateAvailability: (isAvailable) => api.put('/users/availability', { isAvailable }),
-  updateProfile: (formData) => api.put('/users/profile', formData, {
-    headers: {
-      'Content-Type': 'multipart/form-data',
-    }
-  }),
+  updateProfile: (data) => {
+    const isFormData = typeof FormData !== 'undefined' && data instanceof FormData;
+    return api.put('/users/profile', data, isFormData ? { headers: { 'Content-Type': undefined } } : {});
+  },
+  uploadProfileImage: (payload) => {
+    const isFormData = typeof FormData !== 'undefined' && payload instanceof FormData;
+    return api.put('/users/profile-image', payload, isFormData ? { headers: { 'Content-Type': undefined } } : {});
+  },
+  deleteProfileImage: () => api.delete('/users/profile-image'),
   searchDonors: (params) => api.get('/users/search', { params }),
   searchNearbyDonors: (params) => api.get('/users/search', { params }),
   getNotifications: (params) => api.get('/users/notifications', { params }),

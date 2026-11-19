@@ -11,6 +11,8 @@ const DonationCamp = require('../models/DonationCamp');
 
 const {
   updateProfile,
+  updateProfileImage,
+  deleteProfileImage,
   updateAvailability,
   getDonationHistory,
   searchDonors,
@@ -73,6 +75,8 @@ const updateAvailabilityValidation = [
 ];
 
 router.put('/profile', auth, upload.single('profileImage'), updateProfileValidation, updateProfile);
+router.put('/profile-image', auth, upload.single('profileImage'), updateProfileImage);
+router.delete('/profile-image', auth, deleteProfileImage);
 
 router.put('/availability', auth, updateAvailabilityValidation, updateAvailability);
 

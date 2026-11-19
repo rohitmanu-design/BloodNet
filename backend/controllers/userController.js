@@ -1,3 +1,4 @@
+const fs = require('fs');
 const { validationResult } = require('express-validator');
 const User = require('../models/User');
 const Request = require('../models/Request');
@@ -22,7 +23,7 @@ const updateProfile = async (req, res) => {
     const allowedFields = [
       'name', 'firstName', 'lastName', 'hospitalName', 'phone', 'contactNumber',
       'emergencyContact', 'location', 'address', 'city', 'age', 'gender',
-      'bloodGroup', 'email', 'isAvailable', 'lastDonation'
+      'bloodGroup', 'email', 'isAvailable', 'lastDonation', 'profileImage'
     ];
     const updates = {};
 
@@ -124,13 +125,20 @@ const updateProfile = async (req, res) => {
       };
     }
 
-    // Handle profile image upload
+    // Handle profile image upload or update
     if (req.file) {
-      updates.profileImage = `/uploads/profiles/${req.file.filename}`;
-      console.log('Profile image uploaded:', req.file.filename);
-      console.log('Profile image path set:', updates.profileImage);
-    } else {
-      console.log('No profile image file received');
+      try {
+        const fileBuffer = fs.readFileSync(req.file.path);
+        const mimeType = req.file.mimetype || 'image/jpeg';
+        updates.profileImage = `data:${mimeType};base64,${fileBuffer.toString('base64')}`;
+      } catch (readErr) {
+        updates.profileImage = `/uploads/profiles/${req.file.filename}`;
+      }
+      console.log('Profile image processed for user:', req.user.id);
+    } else if (body.profileImage !== undefined) {
+      updates.profileImage = body.profileImage || null;
+    } else if (body.removeProfileImage === 'true' || body.removeProfileImage === true) {
+      updates.profileImage = null;
     }
 
     console.log('Request body received:', body);
@@ -355,8 +363,57 @@ const markAllNotificationsRead = async (req, res) => {
   }
 };
 
+const updateProfileImage = async (req, res) => {
+  try {
+    let imageValue = null;
+    if (req.file) {
+      try {
+        const fileBuffer = fs.readFileSync(req.file.path);
+        const mimeType = req.file.mimetype || 'image/jpeg';
+        imageValue = `data:${mimeType};base64,${fileBuffer.toString('base64')}`;
+      } catch (readErr) {
+        imageValue = `/uploads/profiles/${req.file.filename}`;
+      }
+    } else if (req.body && req.body.profileImage) {
+      imageValue = req.body.profileImage;
+    }
+
+    if (!imageValue) {
+      return res.status(400).json({ message: 'No image data provided' });
+    }
+
+    const user = await User.findByIdAndUpdate(
+      req.user.id,
+      { profileImage: imageValue },
+      { returnDocument: 'after' }
+    ).select('-password');
+
+    res.json({ message: 'Profile picture updated successfully', user });
+  } catch (error) {
+    console.error('Update profile image error:', error);
+    res.status(500).json({ message: 'Failed to update profile picture' });
+  }
+};
+
+const deleteProfileImage = async (req, res) => {
+  try {
+    const user = await User.findByIdAndUpdate(
+      req.user.id,
+      { profileImage: null },
+      { returnDocument: 'after' }
+    ).select('-password');
+
+    res.json({ message: 'Profile picture removed successfully', user });
+  } catch (error) {
+    console.error('Delete profile image error:', error);
+    res.status(500).json({ message: 'Failed to remove profile picture' });
+  }
+};
+
 module.exports = {
   updateProfile,
+  updateProfileImage,
+  deleteProfileImage,
   updateAvailability,
   getDonationHistory,
   searchDonors,

@@ -18,7 +18,8 @@ import {
   ClockIcon,
   ArrowTopRightOnSquareIcon,
   SparklesIcon,
-  InformationCircleIcon
+  InformationCircleIcon,
+  ArrowPathIcon
 } from '@heroicons/react/24/outline';
 import Button from '../components/ui/Button';
 import Card from '../components/ui/Card';
@@ -76,6 +77,7 @@ const ProfilePage = () => {
   const [profileImage, setProfileImage] = useState(null);
   const [previewImage, setPreviewImage] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [imageUploading, setImageUploading] = useState(false);
   const [availabilityLoading, setAvailabilityLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -111,27 +113,111 @@ const ProfilePage = () => {
     }
   }, [user]);
 
-  const handleImageChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      if (file.size > 5 * 1024 * 1024) {
-        setError('Image size should be less than 5MB');
-        return;
-      }
+  // Client-side image compression to optimize quality and permanent MongoDB storage
+  const compressImage = (file, maxWidth = 512, maxHeight = 512, quality = 0.86) => {
+    return new Promise((resolve, reject) => {
       const reader = new FileReader();
-      reader.onloadend = () => {
-        setPreviewImage(reader.result);
-        setProfileImage(file);
-      };
       reader.readAsDataURL(file);
+      reader.onload = (event) => {
+        const img = new Image();
+        img.src = event.target.result;
+        img.onload = () => {
+          let width = img.width;
+          let height = img.height;
+
+          if (width > height) {
+            if (width > maxWidth) {
+              height = Math.round((height * maxWidth) / width);
+              width = maxWidth;
+            }
+          } else {
+            if (height > maxHeight) {
+              width = Math.round((width * maxHeight) / height);
+              height = maxHeight;
+            }
+          }
+
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+
+          const dataUrl = canvas.toDataURL('image/jpeg', quality);
+          resolve(dataUrl);
+        };
+        img.onerror = (err) => reject(err);
+      };
+      reader.onerror = (err) => reject(err);
+    });
+  };
+
+  const handleImageChange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      setError('Please select a valid image file (JPG, PNG, WEBP).');
+      return;
+    }
+
+    if (file.size > 8 * 1024 * 1024) {
+      setError('Image size should be less than 8MB.');
+      return;
+    }
+
+    setError('');
+    setImageUploading(true);
+
+    try {
+      // Create high-res, lightweight compressed base64 data URL
+      const compressedDataUrl = await compressImage(file, 512, 512, 0.86);
+      
+      // Update preview immediately
+      setPreviewImage(compressedDataUrl);
+
+      // Directly upload to the dedicated profile image API
+      const res = await userAPI.uploadProfileImage({ profileImage: compressedDataUrl });
+      const updatedUser = res.data?.user;
+      if (updatedUser) {
+        updateUser(updatedUser);
+        setPreviewImage(getImageUrl(updatedUser.profileImage) || compressedDataUrl);
+      }
+      setSuccess('Profile picture updated successfully!');
+      setTimeout(() => setSuccess(''), 4000);
+    } catch (uploadErr) {
+      console.error('Failed to upload profile picture:', uploadErr);
+      setError(uploadErr.response?.data?.message || 'Failed to upload profile picture. Please try again.');
+    } finally {
+      setImageUploading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
     }
   };
 
-  const handleRemoveImage = () => {
-    setPreviewImage(null);
-    setProfileImage(null);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
+  const handleRemoveImage = async () => {
+    if (imageUploading) return;
+    setImageUploading(true);
+    setError('');
+    try {
+      const res = await userAPI.deleteProfileImage();
+      const updatedUser = res.data?.user;
+      if (updatedUser) {
+        updateUser(updatedUser);
+      }
+      setPreviewImage(null);
+      setProfileImage(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+      setSuccess('Profile picture removed successfully');
+      setTimeout(() => setSuccess(''), 4000);
+    } catch (err) {
+      console.error('Failed to remove profile picture:', err);
+      setError(err.response?.data?.message || 'Failed to remove profile picture');
+    } finally {
+      setImageUploading(false);
     }
   };
 
@@ -249,7 +335,7 @@ const ProfilePage = () => {
             <div className="flex flex-col sm:flex-row items-center sm:items-start gap-5 text-center sm:text-left">
               {/* Profile Avatar */}
               <div className="relative group">
-                <div className="w-28 h-28 sm:w-32 sm:h-32 rounded-2xl overflow-hidden bg-gradient-to-br from-gray-100 to-gray-200 shadow-md border-4 border-white flex items-center justify-center">
+                <div className="w-28 h-28 sm:w-32 sm:h-32 rounded-2xl overflow-hidden bg-gradient-to-br from-gray-100 to-gray-200 shadow-md border-4 border-white flex items-center justify-center relative">
                   {previewImage ? (
                     <img
                       src={previewImage}
@@ -260,26 +346,38 @@ const ProfilePage = () => {
                   ) : (
                     <UserIcon className="h-14 w-14 text-gray-400" />
                   )}
+
+                  {imageUploading && (
+                    <div className="absolute inset-0 bg-black/50 backdrop-blur-xs flex flex-col items-center justify-center text-white text-xs font-semibold">
+                      <ArrowPathIcon className="w-6 h-6 animate-spin text-white mb-1" />
+                      <span>Updating...</span>
+                    </div>
+                  )}
                 </div>
 
                 <button
                   type="button"
                   onClick={() => {
-                    setIsEditing(true);
                     fileInputRef.current?.click();
                   }}
+                  disabled={imageUploading}
                   title="Change avatar picture"
-                  className="absolute -bottom-2 -right-2 p-2 bg-red-600 hover:bg-red-700 text-white rounded-xl shadow-lg transition-transform transform hover:scale-105 active:scale-95"
+                  className="absolute -bottom-2 -right-2 p-2 bg-red-600 hover:bg-red-700 text-white rounded-xl shadow-lg transition-transform transform hover:scale-105 active:scale-95 disabled:opacity-50"
                 >
-                  <CameraIcon className="h-4 w-4" />
+                  {imageUploading ? (
+                    <ArrowPathIcon className="h-4 w-4 animate-spin text-white" />
+                  ) : (
+                    <CameraIcon className="h-4 w-4" />
+                  )}
                 </button>
 
-                {previewImage && isEditing && (
+                {previewImage && (
                   <button
                     type="button"
                     onClick={handleRemoveImage}
+                    disabled={imageUploading}
                     title="Remove avatar"
-                    className="absolute -top-2 -right-2 p-1.5 bg-gray-900/80 hover:bg-black text-white rounded-lg shadow-md transition-all"
+                    className="absolute -top-2 -right-2 p-1.5 bg-gray-900/80 hover:bg-black text-white rounded-lg shadow-md transition-all hover:scale-105 active:scale-95 disabled:opacity-50"
                   >
                     <XMarkIcon className="h-3.5 w-3.5" />
                   </button>
@@ -288,7 +386,7 @@ const ProfilePage = () => {
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept="image/*"
+                  accept="image/png,image/jpeg,image/jpg,image/webp"
                   onChange={handleImageChange}
                   className="hidden"
                 />
