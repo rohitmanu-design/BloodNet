@@ -23,7 +23,7 @@ const requestSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['pending', 'accepted', 'rejected', 'completed', 'cancelled'],
+    enum: ['pending', 'accepted', 'active', 'fulfilled', 'completed', 'cancelled', 'rejected'],
     default: 'pending'
   },
   location: {
@@ -121,6 +121,39 @@ const requestSchema = new mongoose.Schema({
       enum: ['accepted', 'rejected'],
       required: true
     },
+    // Response fulfillment lifecycle status
+    status: {
+      type: String,
+      enum: ['pending', 'accepted', 'selected', 'cancelled', 'released', 'rejected'],
+      default: 'accepted'
+    },
+    unitsReserved: {
+      type: Number,
+      default: 0
+    },
+    inventoryDeducted: {
+      type: Boolean,
+      default: false
+    },
+    selectedAt: {
+      type: Date,
+      default: null
+    },
+    cancelledAt: {
+      type: Date,
+      default: null
+    },
+    cancelledReason: {
+      type: String,
+      default: ''
+    },
+    hospitalInfo: {
+      hospitalName: { type: String, default: '' },
+      address: { type: String, default: '' },
+      lat: { type: Number, default: null },
+      lng: { type: Number, default: null },
+      phone: { type: String, default: '' }
+    },
     message: {
       type: String,
       default: ''
@@ -158,6 +191,29 @@ const requestSchema = new mongoose.Schema({
   activeDonorId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
+    default: null
+  },
+  // Recipient fulfillment selection state
+  fulfillmentChosen: {
+    type: Boolean,
+    default: false
+  },
+  selectedResponseId: {
+    type: mongoose.Schema.Types.ObjectId,
+    default: null
+  },
+  selectedResponderId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
+  },
+  selectedResponderType: {
+    type: String,
+    enum: ['donor', 'hospital', null],
+    default: null
+  },
+  fulfillmentChosenAt: {
+    type: Date,
     default: null
   },
   // Detailed accepted hospital record

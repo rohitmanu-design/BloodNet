@@ -17,6 +17,12 @@ const bloodInventorySchema = new mongoose.Schema({
     min: 0,
     default: 0
   },
+  unitsReserved: {
+    type: Number,
+    required: true,
+    min: 0,
+    default: 0
+  },
   lastUpdated: {
     type: Date,
     default: Date.now

@@ -265,9 +265,13 @@ const getNearbyRequests = async (req, res) => {
     const { maxDistance = 250 } = req.query;
     const user = await User.findById(req.user.id);
 
-    // Show pending requests as well as active/accepted requests needing donor support
+    // Show open requests awaiting response or awaiting recipient choice, or ones user responded to
     let query = {
-      status: { $in: ['pending', 'accepted', 'active'] }
+      status: { $in: ['pending', 'accepted', 'active'] },
+      $or: [
+        { fulfillmentChosen: { $ne: true } },
+        { 'responses.responderId': req.user.id }
+      ]
     };
 
     // Don't filter by bloodGroup - show all requests for friend referrals
@@ -353,6 +357,49 @@ const getDonorActiveDonation = async (req, res) => {
   }
 };
 
+/**
+ * Safely release all reserved hospital inventory for a given request.
+ * Called when a request is cancelled, expired, or deleted without fulfillment.
+ */
+const releaseAllReservedInventory = async (request, reason = 'Request closed', performedBy = null) => {
+  if (!request.responses || request.responses.length === 0) return;
+  for (const resp of request.responses) {
+    if (resp.responderType === 'hospital' && resp.inventoryDeducted && resp.unitsReserved > 0) {
+      try {
+        await BloodInventory.findOneAndUpdate(
+          {
+            hospitalId: resp.responderId,
+            bloodGroup: request.bloodGroup,
+            unitsReserved: { $gte: resp.unitsReserved }
+          },
+          {
+            $inc: { unitsAvailable: resp.unitsReserved, unitsReserved: -resp.unitsReserved },
+            $set: { lastUpdated: new Date() }
+          }
+        );
+
+        await InventoryLog.create({
+          hospitalId: resp.responderId,
+          bloodGroup: request.bloodGroup,
+          operation: 'released_reservation',
+          units: resp.unitsReserved,
+          previousUnits: 0,
+          newUnits: 0,
+          reason: `${reason} for request #${request._id}`,
+          performedBy: performedBy || resp.responderId,
+          relatedRequestId: request._id
+        });
+
+        resp.unitsReserved = 0;
+        resp.inventoryDeducted = false;
+        resp.status = 'released';
+      } catch (err) {
+        console.error('Error releasing inventory reservation:', err.message);
+      }
+    }
+  }
+};
+
 const respondToRequest = async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -368,8 +415,12 @@ const respondToRequest = async (req, res) => {
       return res.status(404).json({ message: 'Request not found' });
     }
 
-    if (request.status !== 'pending') {
-      return res.status(400).json({ message: 'Request is no longer pending' });
+    // Only block responses if request is already cancelled, completed, or a fulfillment option was chosen
+    const isClosed = ['cancelled', 'completed', 'fulfilled', 'rejected'].includes(request.status);
+    if (isClosed || request.fulfillmentChosen) {
+      return res.status(400).json({
+        message: 'This request is no longer accepting responses (already fulfilled or closed)'
+      });
     }
 
     const existingResponse = request.responses.find(
@@ -380,10 +431,14 @@ const respondToRequest = async (req, res) => {
       return res.status(400).json({ message: 'You have already responded to this request' });
     }
 
+    let hospLat = null;
+    let hospLng = null;
+    let hospAddress = '';
+    const unitsNeeded = request.unitsNeeded || 1;
+
     if (response === 'accepted') {
       if (req.user.role === 'hospital') {
         const bloodGroup = request.bloodGroup;
-        const unitsNeeded = request.unitsNeeded || 1;
 
         // 1. Initial stock availability check
         const currentStock = await BloodInventory.findOne({
@@ -404,7 +459,7 @@ const respondToRequest = async (req, res) => {
           });
         }
 
-        // 2. Atomic decrement with safety check to prevent simultaneous race conditions
+        // 2. Atomic reservation: hold stock safely so same stock cannot fulfill multiple requests
         const updatedInventory = await BloodInventory.findOneAndUpdate(
           {
             hospitalId: req.user.id,
@@ -412,7 +467,7 @@ const respondToRequest = async (req, res) => {
             unitsAvailable: { $gte: unitsNeeded }
           },
           {
-            $inc: { unitsAvailable: -unitsNeeded },
+            $inc: { unitsAvailable: -unitsNeeded, unitsReserved: unitsNeeded },
             $set: { lastUpdated: new Date() }
           },
           { new: true }
@@ -433,16 +488,16 @@ const respondToRequest = async (req, res) => {
           });
         }
 
-        // 3. Record in InventoryLog
+        // 3. Record reservation in InventoryLog
         try {
           await InventoryLog.create({
             hospitalId: req.user.id,
             bloodGroup,
-            operation: 'fulfilled_request',
+            operation: 'reserved_for_request',
             units: unitsNeeded,
             previousUnits: updatedInventory.unitsAvailable + unitsNeeded,
             newUnits: updatedInventory.unitsAvailable,
-            reason: `Fulfilled blood request #${request._id}`,
+            reason: `Reserved stock for blood request #${request._id} (awaiting recipient confirmation)`,
             performedBy: req.user.id,
             relatedRequestId: request._id
           });
@@ -450,12 +505,14 @@ const respondToRequest = async (req, res) => {
           console.error('InventoryLog create error:', logErr.message);
         }
 
-        request.hospitalId = req.user.id;
+        if (!request.hospitalId) {
+          request.hospitalId = req.user.id;
+        }
         request.responseDate = new Date();
 
-        let hospLat = req.user.location?.lat || null;
-        let hospLng = req.user.location?.lng || null;
-        const hospAddress = req.user.location?.address || req.user.address || '';
+        hospLat = req.user.location?.lat || null;
+        hospLng = req.user.location?.lng || null;
+        hospAddress = req.user.location?.address || req.user.address || '';
         if ((!hospLat || !hospLng || (hospLat === 0 && hospLng === 0)) && hospAddress) {
           try {
             const geoHosp = await geocodeAddress(hospAddress);
@@ -469,19 +526,22 @@ const respondToRequest = async (req, res) => {
         const acceptanceTime = new Date();
         const locationSharingExpiresAt = new Date(acceptanceTime.getTime() + LOCATION_SHARING_DURATION_MS);
 
-        request.acceptedHospitalInfo = {
-          hospitalId: req.user.id,
-          hospitalName: req.user.hospitalName || req.user.name || 'Verified Hospital Center',
-          address: hospAddress || 'Hospital Center',
-          lat: hospLat,
-          lng: hospLng,
-          phone: req.user.contactNumber || req.user.phone || '',
-          acceptedAt: acceptanceTime,
-          locationSharingExpiresAt,
-          verified: true,
-          isLiveLocation: false // Hospital uses saved verified facility address
-        };
+        if (!request.acceptedHospitalInfo?.hospitalId) {
+          request.acceptedHospitalInfo = {
+            hospitalId: req.user.id,
+            hospitalName: req.user.hospitalName || req.user.name || 'Verified Hospital Center',
+            address: hospAddress || 'Hospital Center',
+            lat: hospLat,
+            lng: hospLng,
+            phone: req.user.contactNumber || req.user.phone || '',
+            acceptedAt: acceptanceTime,
+            locationSharingExpiresAt,
+            verified: true,
+            isLiveLocation: false
+          };
+        }
       } else if (req.user.role === 'donor') {
+        // Donor acceptance does NOT modify hospital inventory
         if (!request.donorId) {
           request.donorId = req.user.id;
         }
@@ -490,7 +550,11 @@ const respondToRequest = async (req, res) => {
         }
         request.responseDate = new Date();
       }
-      request.status = 'accepted';
+
+      // Keep request open (status 'pending' or 'active') while awaiting recipient's fulfillment choice
+      if (request.status === 'pending') {
+        request.status = 'pending';
+      }
     }
 
     const acceptanceTime = new Date();
@@ -522,6 +586,16 @@ const respondToRequest = async (req, res) => {
       responderId: req.user.id,
       responderType: req.user.role,
       response,
+      status: response === 'accepted' ? 'accepted' : 'rejected',
+      unitsReserved: (req.user.role === 'hospital' && response === 'accepted') ? unitsNeeded : 0,
+      inventoryDeducted: (req.user.role === 'hospital' && response === 'accepted'),
+      hospitalInfo: (req.user.role === 'hospital' && response === 'accepted') ? {
+        hospitalName: req.user.hospitalName || req.user.name || 'Verified Hospital Center',
+        address: hospAddress,
+        lat: hospLat,
+        lng: hospLng,
+        phone: req.user.contactNumber || req.user.phone || ''
+      } : undefined,
       message: message || '',
       timestamp: acceptanceTime,
       acceptedAt: response === 'accepted' ? acceptanceTime : null,
@@ -542,6 +616,14 @@ const respondToRequest = async (req, res) => {
       });
       if (global.io) {
         global.io.emit('adminUpdate', { type: 'request_updated', request });
+        global.io.to(`request_${request._id}`).emit('newResponseReceived', {
+          requestId: request._id,
+          responderType: req.user.role,
+          responderId: req.user.id,
+          responderName: req.user.hospitalName || req.user.name || 'Responder',
+          response,
+          status: request.status
+        });
       }
     } catch (e) {
       console.error('AuditLog request error:', e.message);
@@ -564,7 +646,9 @@ const respondToRequest = async (req, res) => {
         global.io.to(requesterSocketId).emit('requestUpdate', {
           requestId: request._id,
           status: request.status,
-          responder: req.user
+          responder: req.user,
+          responderType: req.user.role,
+          response
         });
       }
     }
@@ -624,6 +708,8 @@ const deleteRequest = async (req, res) => {
     }
     
     console.log('Deleting request...');
+    // Safely release any reserved hospital stock before deleting
+    await releaseAllReservedInventory(request, 'Request deleted by user', req.user.id);
     await Request.findByIdAndDelete(requestId);
     console.log('Request deleted successfully');
     
@@ -666,11 +752,14 @@ const getRequestTracking = async (req, res) => {
     }
 
     const isRequester = request.requesterId?._id?.toString() === userId.toString();
-    const isHospital =
+    const hospitalResponse = request.responses?.find(
+      r => r.responderType === 'hospital' && (r.responderId?._id || r.responderId)?.toString() === userId.toString() && r.response === 'accepted'
+    );
+    const isHospital = Boolean(hospitalResponse) ||
       request.acceptedHospitalInfo?.hospitalId?.toString() === userId.toString() ||
       request.hospitalId?._id?.toString() === userId.toString();
     const donorResponse = request.responses?.find(
-      r => r.responderId?._id?.toString() === userId.toString() && r.response === 'accepted'
+      r => r.responderType === 'donor' && (r.responderId?._id || r.responderId)?.toString() === userId.toString() && r.response === 'accepted'
     );
     const isDonor = Boolean(donorResponse);
     const isAdmin = req.user.role === 'admin';
@@ -692,10 +781,11 @@ const getRequestTracking = async (req, res) => {
     let hospitalInfo = null;
     let donorInfo = null;
     let allAcceptedDonors = [];
+    let allAcceptedHospitals = [];
 
     // 24-hour expiration evaluation for each responder role
-    const hospAcceptedAt = request.acceptedHospitalInfo?.acceptedAt || request.responseDate;
-    const hospExpiresAt = request.acceptedHospitalInfo?.locationSharingExpiresAt;
+    const hospAcceptedAt = hospitalResponse?.acceptedAt || request.acceptedHospitalInfo?.acceptedAt || request.responseDate;
+    const hospExpiresAt = hospitalResponse?.locationSharingExpiresAt || request.acceptedHospitalInfo?.locationSharingExpiresAt;
     const hospitalExp = getResponderExpiration(hospAcceptedAt, hospExpiresAt);
 
     const myDonorAcceptedAt = donorResponse ? (donorResponse.acceptedAt || donorResponse.timestamp) : null;
@@ -802,11 +892,17 @@ const getRequestTracking = async (req, res) => {
         const canShare = r.donorShareLocation === true && !isRequestClosed && !dExp.isExpired;
         const respId = r.responderId?._id || r.responderId;
         const isCoord = (request.activeDonorId?._id || request.activeDonorId)?.toString() === respId?.toString();
+        const isSelected = request.selectedResponderId?.toString() === respId?.toString();
         return {
+          responseId: r._id,
           responderId: respId,
+          responderType: 'donor',
           name: r.responderId?.name || 'Verified Donor',
           phone: r.responderId?.phone || '',
           bloodGroup: r.responderId?.bloodGroup || '',
+          unitsReserved: 0,
+          status: r.status || 'accepted',
+          isSelected,
           acceptedAt: dAcceptedAt,
           expiresAt: dExp.expiresAt,
           isExpired: dExp.isExpired,
@@ -826,7 +922,51 @@ const getRequestTracking = async (req, res) => {
       });
 
       // Active coordinating donor
-      donorInfo = allAcceptedDonors.find(d => d.isCoordinating) || allAcceptedDonors[0] || null;
+      donorInfo = allAcceptedDonors.find(d => d.isCoordinating) || allAcceptedDonors.find(d => d.isSelected) || allAcceptedDonors[0] || null;
+
+      // Hospital responses handling for recipient
+      const acceptedHospitalResponses = (request.responses || []).filter(
+        r => r.responderType === 'hospital' && r.response === 'accepted'
+      );
+      allAcceptedHospitals = acceptedHospitalResponses.map(r => {
+        const hAcceptedAt = r.acceptedAt || r.timestamp;
+        const hExpiresAt = r.locationSharingExpiresAt;
+        const hExp = getResponderExpiration(hAcceptedAt, hExpiresAt);
+        const respId = r.responderId?._id || r.responderId;
+        const hName = r.hospitalInfo?.hospitalName || r.responderId?.hospitalName || r.responderId?.name || 'Verified Hospital';
+        const hAddress = r.hospitalInfo?.address || r.responderId?.location?.address || r.responderId?.address || '';
+        const hLat = r.hospitalInfo?.lat ?? r.responderId?.location?.lat ?? null;
+        const hLng = r.hospitalInfo?.lng ?? r.responderId?.location?.lng ?? null;
+        const isSelected = request.selectedResponderId?.toString() === respId?.toString();
+        const hasValidCoords = hLat && hLng && !isNaN(hLat) && !isNaN(hLng) && (hLat !== 0 || hLng !== 0);
+        const directionsUrl = hasValidCoords
+          ? `https://www.google.com/maps/dir/?api=1&destination=${hLat},${hLng}`
+          : (hAddress ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(cleanAddressForMaps(hAddress))}` : null);
+
+        return {
+          responseId: r._id,
+          responderId: respId,
+          responderType: 'hospital',
+          hospitalName: hName,
+          name: hName,
+          address: hAddress,
+          lat: hLat,
+          lng: hLng,
+          phone: r.hospitalInfo?.phone || r.responderId?.contactNumber || r.responderId?.phone || '',
+          unitsReserved: r.unitsReserved || 0,
+          status: r.status || 'accepted',
+          isSelected,
+          acceptedAt: hAcceptedAt,
+          expiresAt: hExp.expiresAt,
+          isExpired: hExp.isExpired,
+          remainingSeconds: hExp.remainingSeconds,
+          directionsUrl
+        };
+      });
+
+      if (!hospitalInfo && allAcceptedHospitals.length > 0) {
+        hospitalInfo = allAcceptedHospitals.find(h => h.isSelected) || allAcceptedHospitals[0] || null;
+      }
     } else if (isDonor) {
       // Donor only sees their own response and tracking state, NEVER other donors' data
       const canShare = donorResponse.donorShareLocation === true && !isRequestClosed && !myDonorExp.isExpired;
@@ -885,6 +1025,13 @@ const getRequestTracking = async (req, res) => {
       activeDonor: donorInfo,
       allDonors: allAcceptedDonors,
       allAcceptedDonors,
+      allHospitals: allAcceptedHospitals,
+      allAcceptedHospitals,
+      fulfillmentChosen: Boolean(request.fulfillmentChosen),
+      selectedResponseId: request.selectedResponseId || null,
+      selectedResponderId: request.selectedResponderId || null,
+      selectedResponderType: request.selectedResponderType || null,
+      fulfillmentChosenAt: request.fulfillmentChosenAt || null,
       shareWithHospitals: request.location?.shareWithHospitals !== false,
       shareWithDonors: request.location?.shareWithDonors !== false,
       activeDonorId: request.activeDonorId || request.donorId || null,
@@ -1222,40 +1369,205 @@ const renewLocationSharing = async (req, res) => {
   }
 };
 
-const selectActiveDonor = async (req, res) => {
+const selectFulfillmentOption = async (req, res) => {
   try {
     const { requestId } = req.params;
-    const { donorId } = req.body;
+    const { responderId, responseId, responderType } = req.body;
     const userId = req.user.id;
 
-    const request = await Request.findOne({ _id: requestId, requesterId: userId });
+    const request = await Request.findById(requestId);
     if (!request) {
-      return res.status(404).json({ message: 'Request not found or not authorized' });
+      return res.status(404).json({ message: 'Request not found' });
     }
 
-    const donorResp = request.responses?.find(
-      r => r.responderId.toString() === donorId.toString() && r.response === 'accepted'
-    );
-    if (!donorResp) {
-      return res.status(400).json({ message: 'Selected user has not accepted this request' });
+    const isRequester = request.requesterId.toString() === userId.toString();
+    const isAdmin = req.user.role === 'admin';
+    if (!isRequester && !isAdmin) {
+      return res.status(403).json({ message: 'Only the request creator can choose a fulfillment option' });
     }
 
-    request.activeDonorId = donorId;
-    request.donorId = donorId;
-    await request.save();
-
-    if (global.io) {
-      global.io.to(`request_${requestId}`).emit('activeDonorChanged', {
-        requestId,
-        activeDonorId: donorId
+    if (request.fulfillmentChosen) {
+      return res.status(400).json({
+        message: 'A fulfillment option has already been selected for this request. Additional choices are locked.'
       });
     }
 
-    res.json({ message: 'Coordinating donor updated', activeDonorId: donorId });
+    const isClosed = ['cancelled', 'completed', 'fulfilled', 'rejected'].includes(request.status);
+    if (isClosed) {
+      return res.status(400).json({ message: `Cannot select fulfillment for a ${request.status} request` });
+    }
+
+    // Find the chosen response
+    const selectedResp = request.responses?.find(r => {
+      if (responseId && r._id.toString() === responseId.toString()) return true;
+      if (responderId && r.responderId.toString() === responderId.toString()) {
+        if (responderType) return r.responderType === responderType && r.response === 'accepted';
+        return r.response === 'accepted';
+      }
+      return false;
+    });
+
+    if (!selectedResp || selectedResp.response !== 'accepted') {
+      return res.status(404).json({ message: 'The selected responder has not accepted this request' });
+    }
+
+    // 1. Mark selected response
+    selectedResp.status = 'selected';
+    selectedResp.selectedAt = new Date();
+
+    // 2. Mark request fulfillment fields
+    request.fulfillmentChosen = true;
+    request.selectedResponseId = selectedResp._id;
+    request.selectedResponderId = selectedResp.responderId;
+    request.selectedResponderType = selectedResp.responderType;
+    request.fulfillmentChosenAt = new Date();
+    request.status = 'accepted';
+
+    if (selectedResp.responderType === 'donor') {
+      request.donorId = selectedResp.responderId;
+      request.activeDonorId = selectedResp.responderId;
+    } else if (selectedResp.responderType === 'hospital') {
+      request.hospitalId = selectedResp.responderId;
+      if (selectedResp.hospitalInfo?.hospitalName) {
+        request.acceptedHospitalInfo = {
+          hospitalId: selectedResp.responderId,
+          hospitalName: selectedResp.hospitalInfo.hospitalName,
+          address: selectedResp.hospitalInfo.address || '',
+          lat: selectedResp.hospitalInfo.lat || null,
+          lng: selectedResp.hospitalInfo.lng || null,
+          phone: selectedResp.hospitalInfo.phone || '',
+          acceptedAt: selectedResp.acceptedAt || new Date(),
+          locationSharingExpiresAt: selectedResp.locationSharingExpiresAt,
+          verified: true,
+          isLiveLocation: false
+        };
+      }
+      // Confirm inventory reservation as fulfilled
+      try {
+        await InventoryLog.create({
+          hospitalId: selectedResp.responderId,
+          bloodGroup: request.bloodGroup,
+          operation: 'fulfilled_request',
+          units: selectedResp.unitsReserved || request.unitsNeeded || 1,
+          previousUnits: 0,
+          newUnits: 0,
+          reason: `Fulfillment confirmed by recipient for request #${request._id}`,
+          performedBy: userId,
+          relatedRequestId: request._id
+        });
+        await BloodInventory.findOneAndUpdate(
+          { hospitalId: selectedResp.responderId, bloodGroup: request.bloodGroup, unitsReserved: { $gte: selectedResp.unitsReserved } },
+          { $inc: { unitsReserved: -selectedResp.unitsReserved }, $set: { lastUpdated: new Date() } }
+        );
+      } catch (err) {
+        console.error('Inventory fulfill log error:', err.message);
+      }
+    }
+
+    // 3. Cancel and close all OTHER responses and safely release their inventory
+    const otherResponses = request.responses.filter(
+      r => r._id.toString() !== selectedResp._id.toString()
+    );
+
+    for (const other of otherResponses) {
+      if (other.response === 'accepted') {
+        other.status = 'cancelled';
+        other.cancelledAt = new Date();
+        other.cancelledReason = 'Recipient selected another fulfillment option';
+        other.trackingStatus = 'stopped';
+
+        // If this other response was a hospital with reserved inventory, release it safely!
+        if (other.responderType === 'hospital' && other.inventoryDeducted && other.unitsReserved > 0) {
+          try {
+            await BloodInventory.findOneAndUpdate(
+              {
+                hospitalId: other.responderId,
+                bloodGroup: request.bloodGroup,
+                unitsReserved: { $gte: other.unitsReserved }
+              },
+              {
+                $inc: { unitsAvailable: other.unitsReserved, unitsReserved: -other.unitsReserved },
+                $set: { lastUpdated: new Date() }
+              }
+            );
+
+            await InventoryLog.create({
+              hospitalId: other.responderId,
+              bloodGroup: request.bloodGroup,
+              operation: 'released_reservation',
+              units: other.unitsReserved,
+              previousUnits: 0,
+              newUnits: 0,
+              reason: `Released reservation: recipient selected another fulfillment option for request #${request._id}`,
+              performedBy: userId,
+              relatedRequestId: request._id
+            });
+
+            other.unitsReserved = 0;
+            other.inventoryDeducted = false;
+          } catch (relErr) {
+            console.error('Error releasing hospital inventory reservation:', relErr.message);
+          }
+        }
+      }
+    }
+
+    await request.save();
+
+    // 4. Real-time Socket.IO events
+    if (global.io) {
+      global.io.to(`request_${requestId}`).emit('fulfillmentSelected', {
+        requestId,
+        selectedResponderId: selectedResp.responderId,
+        selectedResponderType: selectedResp.responderType,
+        selectedResponseId: selectedResp._id
+      });
+      global.io.emit('adminUpdate', { type: 'request_updated', request });
+    }
+
+    // Notify selected responder
+    await Notification.create({
+      userId: selectedResp.responderId,
+      title: 'Fulfillment Selected!',
+      message: `The recipient has selected your ${selectedResp.responderType} response to fulfill blood request #${request._id}.`,
+      type: 'request_accepted',
+      relatedRequestId: request._id,
+      priority: 'high'
+    });
+
+    // Notify other unselected responders
+    for (const other of otherResponses) {
+      if (other.response === 'accepted') {
+        await Notification.create({
+          userId: other.responderId,
+          title: 'Request Assigned to Another Responder',
+          message: `The recipient chose another fulfillment option for blood request #${request._id}. Any reserved stock has been released.`,
+          type: 'request_rejected',
+          relatedRequestId: request._id,
+          priority: 'medium'
+        });
+      }
+    }
+
+    res.json({
+      message: 'Fulfillment option selected successfully',
+      request,
+      activeDonorId: request.activeDonorId,
+      selectedResponder: {
+        id: selectedResp.responderId,
+        type: selectedResp.responderType
+      }
+    });
   } catch (error) {
-    console.error('Select active donor error:', error);
-    res.status(500).json({ message: 'Server error selecting active donor' });
+    console.error('Select fulfillment option error:', error);
+    res.status(500).json({ message: 'Server error selecting fulfillment option' });
   }
+};
+
+const selectActiveDonor = async (req, res) => {
+  req.body.responderId = req.body.donorId;
+  req.body.responderType = 'donor';
+  return selectFulfillmentOption(req, res);
 };
 
 const updateRequestStatus = async (req, res) => {
@@ -1275,7 +1587,8 @@ const updateRequestStatus = async (req, res) => {
 
     const isRequester = request.requesterId.toString() === userId.toString();
     const isAdmin = req.user.role === 'admin';
-    const isAcceptedHospital = request.acceptedHospitalInfo?.hospitalId?.toString() === userId.toString();
+    const isAcceptedHospital = request.acceptedHospitalInfo?.hospitalId?.toString() === userId.toString() ||
+      request.hospitalId?.toString() === userId.toString();
 
     if (!isRequester && !isAdmin && !isAcceptedHospital) {
       return res.status(403).json({ message: 'You do not have permission to update this request status' });
@@ -1283,7 +1596,11 @@ const updateRequestStatus = async (req, res) => {
 
     request.status = status;
     if (status === 'completed') request.completedAt = new Date();
-    if (status === 'cancelled') request.cancelledAt = new Date();
+    if (status === 'cancelled') {
+      request.cancelledAt = new Date();
+      // Safely release any unfulfilled hospital reservations
+      await releaseAllReservedInventory(request, 'Request cancelled', userId);
+    }
 
     // Immediately stop and revoke location sharing
     request.location.trackingStatus = 'stopped';
@@ -1329,5 +1646,6 @@ module.exports = {
   updateLocationConsent,
   renewLocationSharing,
   selectActiveDonor,
+  selectFulfillmentOption,
   updateRequestStatus
 };

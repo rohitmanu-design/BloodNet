@@ -129,7 +129,15 @@ const MobileHospitalDashboard = () => {
     return { text: 'Normal', color: 'green', icon: '✅' };
   };
 
-  const filteredRequests = bloodRequests.filter(req => req.status === 'pending');
+  const filteredRequests = bloodRequests.filter(req => {
+    const isClosed = ['cancelled', 'completed', 'fulfilled', 'rejected'].includes(req.status);
+    if (isClosed) return false;
+    const myUserId = (user?._id || user?.id)?.toString();
+    if (req.fulfillmentChosen && req.selectedResponderId?.toString() !== myUserId) {
+      return false;
+    }
+    return true;
+  });
 
   if (loading) {
     return (
@@ -559,19 +567,53 @@ const MobileHospitalDashboard = () => {
                         </div>
                       </div>
 
-                      <div className="flex space-x-3">
-                        <button
-                          onClick={() => handleRequestResponse(request._id, 'accepted')}
-                          className="flex-1 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium"
-                        >
-                          ✅ Accept
-                        </button>
-                        <button
-                          onClick={() => handleRequestResponse(request._id, 'rejected')}
-                          className="flex-1 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium"
-                        >
-                          ❌ Reject
-                        </button>
+                      <div className="pt-1">
+                        {(() => {
+                          const myUserId = (user?._id || user?.id)?.toString();
+                          const myResp = request.responses?.find(
+                            r => (r.responderId?._id || r.responderId)?.toString() === myUserId
+                          );
+                          const isSelected = request.selectedResponderId?.toString() === myUserId || myResp?.status === 'selected';
+
+                          if (isSelected) {
+                            return (
+                              <div className="w-full py-2.5 px-3 bg-emerald-50 border border-emerald-300 rounded-lg text-emerald-800 text-xs font-bold text-center">
+                                ✓ Selected for Fulfillment by Patient
+                              </div>
+                            );
+                          }
+                          if (myResp?.response === 'accepted') {
+                            return (
+                              <div className="w-full py-2.5 px-3 bg-blue-50 border border-blue-300 rounded-lg text-blue-800 text-xs font-bold text-center">
+                                ✓ Offered Fulfillment (Awaiting Patient Choice)
+                              </div>
+                            );
+                          }
+                          if (myResp?.response === 'rejected') {
+                            return (
+                              <div className="w-full py-2 px-3 bg-red-50 text-red-700 text-xs font-medium text-center rounded-lg">
+                                Declined
+                              </div>
+                            );
+                          }
+
+                          return (
+                            <div className="flex space-x-3">
+                              <button
+                                onClick={() => handleRequestResponse(request._id, 'accepted')}
+                                className="flex-1 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium text-sm shadow-xs"
+                              >
+                                ✅ Accept & Fulfill
+                              </button>
+                              <button
+                                onClick={() => handleRequestResponse(request._id, 'rejected')}
+                                className="flex-1 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium text-sm shadow-xs"
+                              >
+                                ❌ Reject
+                              </button>
+                            </div>
+                          );
+                        })()}
                       </div>
                     </div>
                   </motion.div>

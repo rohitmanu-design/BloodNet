@@ -14,7 +14,7 @@ const inventoryLogSchema = new mongoose.Schema({
   },
   operation: {
     type: String,
-    enum: ['add', 'subtract', 'set', 'fulfilled_request'],
+    enum: ['add', 'subtract', 'set', 'fulfilled_request', 'reserved_for_request', 'released_reservation'],
     required: true
   },
   units: {

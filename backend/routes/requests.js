@@ -14,6 +14,7 @@ const {
   updateLocationConsent,
   renewLocationSharing,
   selectActiveDonor,
+  selectFulfillmentOption,
   updateRequestStatus
 } = require('../controllers/requestController');
 
@@ -54,6 +55,7 @@ router.post('/:requestId/location-update', auth, locationUpdateValidation, updat
 router.put('/:requestId/location-consent', auth, updateLocationConsent);
 router.put('/:requestId/renew-location-sharing', auth, renewLocationSharing);
 router.put('/:requestId/select-donor', auth, selectActiveDonor);
+router.put('/:requestId/select-fulfillment', auth, selectFulfillmentOption);
 router.put('/:requestId/status', auth, updateRequestStatus);
 
 router.put('/:requestId/respond', auth, requireVerifiedContact, authorize('donor', 'hospital'), respondValidation, respondToRequest);

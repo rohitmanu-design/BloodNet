@@ -567,14 +567,32 @@ const RecipientDashboard = () => {
       }
     };
 
+    const handleNewResponseReceived = (payload) => {
+      if (payload.requestId === activeTrackingRequest._id) {
+        handleOpenTracking(activeTrackingRequest);
+        fetchDashboardData();
+      }
+    };
+
+    const handleFulfillmentSelected = (payload) => {
+      if (payload.requestId === activeTrackingRequest._id) {
+        handleOpenTracking(activeTrackingRequest);
+        fetchDashboardData();
+      }
+    };
+
     socket.on('locationSharingExpired', handleLocationSharingExpired);
     socket.on('locationSharingRenewed', handleLocationSharingRenewed);
+    socket.on('newResponseReceived', handleNewResponseReceived);
+    socket.on('fulfillmentSelected', handleFulfillmentSelected);
 
     return () => {
       socket.off('locationUpdate', handleLocationUpdate);
       socket.off('trackingStopped', handleTrackingStopped);
       socket.off('locationSharingExpired', handleLocationSharingExpired);
       socket.off('locationSharingRenewed', handleLocationSharingRenewed);
+      socket.off('newResponseReceived', handleNewResponseReceived);
+      socket.off('fulfillmentSelected', handleFulfillmentSelected);
     };
   }, [socket, activeTrackingRequest]);
 
@@ -622,6 +640,27 @@ const RecipientDashboard = () => {
       }));
     } catch (err) {
       console.error('Failed to select active donor:', err);
+    }
+  };
+
+  // Select final fulfillment option (donor or hospital)
+  const handleSelectFulfillment = async (responderId, responseId, responderType) => {
+    if (!activeTrackingRequest) return;
+    const responderLabel = responderType === 'hospital' ? 'this hospital' : 'this donor';
+    if (!window.confirm(`Choose ${responderLabel} for fulfillment? Other responses will be closed and any reserved inventory will be safely handled.`)) {
+      return;
+    }
+    try {
+      await requestAPI.selectFulfillment(activeTrackingRequest._id, {
+        responderId,
+        responseId,
+        responderType
+      });
+      handleOpenTracking(activeTrackingRequest);
+      fetchDashboardData();
+    } catch (err) {
+      console.error('Failed to select fulfillment option:', err);
+      alert(err.response?.data?.message || 'Failed to select fulfillment option');
     }
   };
 
@@ -1005,6 +1044,26 @@ const RecipientDashboard = () => {
                         </div>
                       ) : trackingData ? (
                         <div className="space-y-6 pt-4">
+                          {/* Fulfillment Choice Notification Banner */}
+                          {trackingData.fulfillmentChosen && (
+                            <div className="p-3.5 bg-emerald-50 border border-emerald-300 rounded-xl flex items-center justify-between text-xs text-emerald-950 shadow-xs">
+                              <div className="flex items-center gap-2.5">
+                                <CheckCircleIcon className="w-5 h-5 text-emerald-600 shrink-0" />
+                                <div>
+                                  <p className="font-bold text-emerald-900">
+                                    Fulfillment Confirmed with {trackingData.selectedResponderType === 'hospital' ? 'Hospital' : 'Donor'}
+                                  </p>
+                                  <p className="text-[11px] text-emerald-700">
+                                    Selected responder is assigned. Other offers are closed and unfulfilled inventory holds are safely released.
+                                  </p>
+                                </div>
+                              </div>
+                              <span className="px-2.5 py-1 bg-emerald-200/70 text-emerald-900 font-extrabold rounded-full text-[11px] shrink-0">
+                                Fulfillment Selected
+                              </span>
+                            </div>
+                          )}
+
                           {/* Live Tracking Map */}
                           <div className="rounded-xl overflow-hidden border border-gray-200 shadow-sm">
                             <LiveTrackingMap
@@ -1030,55 +1089,91 @@ const RecipientDashboard = () => {
                               <div className="flex items-center justify-between mb-2">
                                 <span className="text-xs font-bold text-blue-900 uppercase tracking-wider flex items-center gap-1">
                                   <BuildingOfficeIcon className="h-4 w-4 text-blue-600" />
-                                  Accepted Hospital
+                                  Responding Hospitals ({trackingData.allHospitals?.length || (trackingData.hospitalInfo ? 1 : 0)})
                                 </span>
-                                {trackingData.hospitalInfo?.verified && (
-                                  <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 font-semibold flex items-center gap-0.5">
-                                    <ShieldCheckIcon className="h-3.5 w-3.5 text-blue-600" />
-                                    Verified Facility
-                                  </span>
-                                )}
                               </div>
-                              {trackingData.hospitalInfo ? (
-                                <div className="space-y-1.5 text-xs text-gray-700">
-                                  <p className="font-bold text-sm text-gray-900">{trackingData.hospitalInfo.hospitalName}</p>
-                                  <p className="text-gray-600">📍 {trackingData.hospitalInfo.address}</p>
-                                  {trackingData.hospitalInfo.phone && (
-                                    <p className="text-gray-600">📞 {trackingData.hospitalInfo.phone}</p>
-                                  )}
-                                  {trackingData.hospitalInfo.acceptedAt && (
-                                    <p className="text-[11px] text-gray-500">
-                                      Accepted: {new Date(trackingData.hospitalInfo.acceptedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              {(() => {
+                                const hospitalsList = (trackingData.allHospitals && trackingData.allHospitals.length > 0)
+                                  ? trackingData.allHospitals
+                                  : (trackingData.hospitalInfo ? [trackingData.hospitalInfo] : []);
+
+                                if (hospitalsList.length === 0) {
+                                  return (
+                                    <p className="text-xs text-gray-500 py-3 italic">
+                                      No hospital has responded yet. Eligible hospitals can accept anytime.
                                     </p>
-                                  )}
-                                  {(() => {
-                                    const dirUrl = buildDirectionsUrl(
-                                      trackingData.hospitalInfo.lat,
-                                      trackingData.hospitalInfo.lng,
-                                      trackingData.hospitalInfo.address
-                                    ) || trackingData.hospitalInfo.directionsUrl;
-                                    if (!dirUrl) return null;
-                                    return (
-                                      <a
-                                        href={dirUrl}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:text-blue-900 mt-2 underline"
-                                      >
-                                        <span>Get Directions on Google Maps</span>
-                                        <ArrowTopRightOnSquareIcon className="h-3.5 w-3.5" />
-                                      </a>
-                                    );
-                                  })()}
-                                  <p className="text-[10px] text-gray-500 italic mt-1">
-                                    Notice: Hospital location reflects the verified medical facility address (not live GPS tracking).
-                                  </p>
-                                </div>
-                              ) : (
-                                <p className="text-xs text-gray-500 py-3 italic">
-                                  No hospital has accepted this request yet.
-                                </p>
-                              )}
+                                  );
+                                }
+
+                                return (
+                                  <div className="space-y-3">
+                                    {hospitalsList.map((hosp, idx) => {
+                                      const isSelected = hosp.isSelected || trackingData.selectedResponderId?.toString() === hosp.responderId?.toString();
+                                      const dirUrl = buildDirectionsUrl(hosp.lat, hosp.lng, hosp.address) || hosp.directionsUrl;
+
+                                      return (
+                                        <div
+                                          key={hosp.responderId || hosp.hospitalId || idx}
+                                          className={`p-3 rounded-lg border text-xs transition-colors ${
+                                            isSelected ? 'bg-white border-blue-500 shadow-sm ring-1 ring-blue-300' : 'bg-white/80 border-blue-200'
+                                          }`}
+                                        >
+                                          <div className="flex items-start justify-between gap-2">
+                                            <div className="space-y-1 min-w-0 flex-1">
+                                              <div className="flex items-center gap-1.5 flex-wrap">
+                                                <span className="font-bold text-gray-900">{hosp.hospitalName || hosp.name}</span>
+                                                <span className="text-[10px] px-1.5 py-0.2 rounded bg-blue-100 text-blue-800 font-semibold">
+                                                  Verified Facility
+                                                </span>
+                                              </div>
+                                              <p className="text-gray-600 truncate">📍 {hosp.address || 'Address on file'}</p>
+                                              {hosp.phone && <p className="text-gray-600">📞 {hosp.phone}</p>}
+                                              {hosp.unitsReserved > 0 && (
+                                                <p className="text-[11px] text-blue-700 font-semibold">
+                                                  📦 {hosp.unitsReserved} unit(s) reserved in stock
+                                                </p>
+                                              )}
+                                              {dirUrl && (
+                                                <a
+                                                  href={dirUrl}
+                                                  target="_blank"
+                                                  rel="noopener noreferrer"
+                                                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 hover:text-blue-900 underline mt-1"
+                                                >
+                                                  <span>Get Directions on Google Maps</span>
+                                                  <ArrowTopRightOnSquareIcon className="h-3 w-3" />
+                                                </a>
+                                              )}
+                                            </div>
+                                            <div className="shrink-0 flex flex-col items-end gap-1">
+                                              {isSelected ? (
+                                                <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold flex items-center gap-1">
+                                                  <CheckCircleIcon className="w-3.5 h-3.5 text-emerald-600" />
+                                                  Selected Facility
+                                                </span>
+                                              ) : trackingData.fulfillmentChosen ? (
+                                                <span className="px-2 py-0.5 rounded text-[10px] text-gray-400 bg-gray-100 font-medium">
+                                                  Option Closed
+                                                </span>
+                                              ) : (
+                                                <button
+                                                  onClick={() => handleSelectFulfillment(hosp.responderId || hosp.hospitalId, hosp.responseId, 'hospital')}
+                                                  className="px-2.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold shadow-xs transition-colors"
+                                                >
+                                                  Choose Hospital Stock
+                                                </button>
+                                              )}
+                                            </div>
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                );
+                              })()}
+                              <p className="text-[10px] text-gray-500 italic mt-2">
+                                Notice: Hospital inventory is reserved atomically when accepted and released safely if another option is chosen.
+                              </p>
                             </div>
 
                             {/* Donors Card */}
@@ -1092,12 +1187,12 @@ const RecipientDashboard = () => {
                               {trackingData.allDonors && trackingData.allDonors.length > 0 ? (
                                 <div className="space-y-2">
                                   {trackingData.allDonors.map((donor) => {
-                                    const isCoordinating = trackingData.activeDonor?._id?.toString() === donor.responderId?.toString();
+                                    const isSelected = donor.isSelected || trackingData.selectedResponderId?.toString() === donor.responderId?.toString();
                                     return (
                                       <div
                                         key={donor.responderId}
                                         className={`p-2.5 rounded-lg border text-xs transition-colors ${
-                                          isCoordinating ? 'bg-white border-rose-400 shadow-xs' : 'bg-white/70 border-gray-200'
+                                          isSelected ? 'bg-white border-rose-500 shadow-sm ring-1 ring-rose-300' : 'bg-white/70 border-gray-200'
                                         }`}
                                       >
                                         <div className="flex items-center justify-between">
@@ -1129,17 +1224,22 @@ const RecipientDashboard = () => {
                                               </div>
                                             )}
                                           </div>
-                                          <div>
-                                            {isCoordinating ? (
-                                              <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">
-                                                Active Match
+                                          <div className="flex flex-col items-end gap-1">
+                                            {isSelected ? (
+                                              <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold flex items-center gap-1">
+                                                <CheckCircleIcon className="w-3.5 h-3.5 text-emerald-600" />
+                                                Selected Match
+                                              </span>
+                                            ) : trackingData.fulfillmentChosen ? (
+                                              <span className="px-2 py-0.5 rounded text-[10px] text-gray-400 bg-gray-100 font-medium">
+                                                Option Closed
                                               </span>
                                             ) : (
                                               <button
-                                                onClick={() => handleSelectDonor(donor.responderId)}
-                                                className="px-2 py-1 rounded-md bg-rose-100 hover:bg-rose-200 text-rose-800 text-[10px] font-semibold transition-colors"
+                                                onClick={() => handleSelectFulfillment(donor.responderId, donor.responseId, 'donor')}
+                                                className="px-2.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-bold shadow-xs transition-colors"
                                               >
-                                                Coordinate Here
+                                                Choose Donor Match
                                               </button>
                                             )}
                                           </div>

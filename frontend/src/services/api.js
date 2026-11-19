@@ -111,6 +111,7 @@ export const requestAPI = {
   updateLocationConsent: (requestId, data) => api.put(`/requests/${requestId}/location-consent`, data),
   renewLocationSharing: (requestId, data) => api.put(`/requests/${requestId}/renew-location-sharing`, data),
   selectActiveDonor: (requestId, donorId) => api.put(`/requests/${requestId}/select-donor`, { donorId }),
+  selectFulfillment: (requestId, data) => api.put(`/requests/${requestId}/select-fulfillment`, data),
   updateRequestStatus: (requestId, status) => api.put(`/requests/${requestId}/status`, { status }),
 };
 

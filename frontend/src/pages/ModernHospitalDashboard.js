@@ -1283,43 +1283,95 @@ const ModernHospitalDashboard = () => {
                           </div>
                         </div>
                         <div className="flex items-center space-x-2 ml-4">
-                          {request.status === 'pending' && (
-                            <>
-                              <button
-                                onClick={() => handleRequestResponse(request._id, 'accepted')}
-                                className="p-2 bg-green-100 text-green-600 rounded-lg hover:bg-green-200 transition-colors"
-                                title="Accept Request"
-                              >
-                                <CheckCircleIcon className="h-5 w-5" />
-                              </button>
-                              <button
-                                onClick={() => handleRequestResponse(request._id, 'rejected')}
-                                className="p-2 bg-red-100 text-red-600 rounded-lg hover:bg-red-200 transition-colors"
-                                title="Reject Request"
-                              >
-                                <XCircleIcon className="h-5 w-5" />
-                              </button>
-                            </>
-                          )}
-                          {request.status === 'accepted' && (
-                            <div className="flex flex-col items-end gap-1.5">
-                              <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-bold border border-green-200">
-                                Accepted
-                              </span>
-                              <button
-                                onClick={() => handleOpenHospitalTracking(request)}
-                                className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors"
-                              >
-                                <MapPinIcon className="h-3.5 w-3.5" />
-                                <span>Live Map & Details</span>
-                              </button>
-                            </div>
-                          )}
-                          {request.status === 'rejected' && (
-                            <span className="px-3 py-1 bg-red-100 text-red-600 rounded-full text-sm font-medium">
-                              Rejected
-                            </span>
-                          )}
+                          {(() => {
+                            const myUserId = (user?._id || user?.id)?.toString();
+                            const myHospitalResponse = request.responses?.find(
+                              r => (r.responderId?._id || r.responderId)?.toString() === myUserId
+                            );
+                            const isSelected = request.selectedResponderId?.toString() === myUserId || myHospitalResponse?.status === 'selected';
+                            const isFulfilledOther = request.fulfillmentChosen && !isSelected;
+                            const isClosed = ['cancelled', 'completed', 'fulfilled', 'rejected'].includes(request.status);
+
+                            if (isSelected) {
+                              return (
+                                <div className="flex flex-col items-end gap-1.5">
+                                  <span className="px-3 py-1 bg-emerald-100 text-emerald-800 rounded-full text-xs font-bold border border-emerald-200 flex items-center gap-1">
+                                    <CheckCircleIcon className="h-4 w-4 text-emerald-600" />
+                                    <span>Selected for Fulfillment</span>
+                                  </span>
+                                  <button
+                                    onClick={() => handleOpenHospitalTracking(request)}
+                                    className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors"
+                                  >
+                                    <MapPinIcon className="h-3.5 w-3.5" />
+                                    <span>Live Map & Patient Nav</span>
+                                  </button>
+                                </div>
+                              );
+                            }
+
+                            if (myHospitalResponse?.response === 'accepted') {
+                              return (
+                                <div className="flex flex-col items-end gap-1.5">
+                                  {isFulfilledOther ? (
+                                    <span className="px-3 py-1 bg-gray-100 text-gray-600 rounded-full text-xs font-medium border border-gray-200">
+                                      Assigned to Other Responder
+                                    </span>
+                                  ) : (
+                                    <>
+                                      <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-bold border border-blue-200">
+                                        Offered Fulfillment (Awaiting Patient Choice)
+                                      </span>
+                                      <button
+                                        onClick={() => handleOpenHospitalTracking(request)}
+                                        className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors"
+                                      >
+                                        <MapPinIcon className="h-3.5 w-3.5" />
+                                        <span>Live Map & Details</span>
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
+                              );
+                            }
+
+                            if (myHospitalResponse?.response === 'rejected') {
+                              return (
+                                <span className="px-3 py-1 bg-red-100 text-red-600 rounded-full text-xs font-medium">
+                                  Declined
+                                </span>
+                              );
+                            }
+
+                            if (isFulfilledOther || isClosed) {
+                              return (
+                                <span className="px-3 py-1 bg-gray-100 text-gray-500 rounded-full text-xs font-medium">
+                                  {request.status === 'cancelled' ? 'Cancelled' : 'Fulfilled / Closed'}
+                                </span>
+                              );
+                            }
+
+                            // Open for response: allow hospital to respond even if donors or other hospitals accepted!
+                            return (
+                              <div className="flex items-center space-x-2">
+                                <button
+                                  onClick={() => handleRequestResponse(request._id, 'accepted')}
+                                  className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 transition-colors shadow-xs"
+                                  title="Accept Request and Reserve Stock"
+                                >
+                                  <CheckCircleIcon className="h-4 w-4" />
+                                  <span>Accept & Fulfill</span>
+                                </button>
+                                <button
+                                  onClick={() => handleRequestResponse(request._id, 'rejected')}
+                                  className="p-1.5 bg-red-100 text-red-600 rounded-lg hover:bg-red-200 transition-colors"
+                                  title="Decline"
+                                >
+                                  <XCircleIcon className="h-4 w-4" />
+                                </button>
+                              </div>
+                            );
+                          })()}
                         </div>
                       </div>
                     </div>
