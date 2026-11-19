@@ -111,25 +111,46 @@ const ModernHospitalDashboard = () => {
       if (payload.requestId === activeTrackingModalRequest._id) {
         setHospitalTrackingData(prev => {
           if (!prev) return prev;
-          if (payload.senderRole === 'donor' && payload.location) {
+          const isDonor = payload.role === 'donor' || payload.senderRole === 'donor';
+          if (isDonor) {
+            const loc = payload.location || {
+              address: payload.address,
+              lat: payload.lat,
+              lng: payload.lng,
+              accuracy: payload.accuracy,
+              lastUpdated: payload.lastUpdated
+            };
             return {
               ...prev,
               activeDonor: prev.activeDonor ? {
                 ...prev.activeDonor,
-                currentLocation: payload.location,
+                address: loc.address || prev.activeDonor.address,
+                currentLocation: {
+                  ...prev.activeDonor.currentLocation,
+                  ...loc
+                },
                 trackingStatus: payload.trackingStatus || prev.activeDonor.trackingStatus
               } : prev.activeDonor
             };
           }
-          if (payload.senderRole === 'recipient' && payload.location) {
+          const isRecipient = payload.role === 'recipient' || payload.senderRole === 'recipient';
+          if (isRecipient) {
+            const loc = payload.location || {
+              address: payload.address,
+              lat: payload.lat,
+              lng: payload.lng,
+              accuracy: payload.accuracy,
+              lastUpdated: payload.lastUpdated
+            };
             return {
               ...prev,
               requesterLocation: {
                 ...prev.requesterLocation,
-                lat: payload.location.lat,
-                lng: payload.location.lng,
-                accuracy: payload.location.accuracy,
-                lastUpdated: payload.location.lastUpdated
+                address: loc.address || prev.requesterLocation?.address,
+                lat: loc.lat,
+                lng: loc.lng,
+                accuracy: loc.accuracy,
+                lastUpdated: loc.lastUpdated
               }
             };
           }

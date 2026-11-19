@@ -176,6 +176,7 @@ const requestSchema = new mongoose.Schema({
       default: false
     },
     currentLocation: {
+      address: { type: String, default: '', trim: true },
       lat: { type: Number, default: null },
       lng: { type: Number, default: null },
       accuracy: { type: Number, default: null },

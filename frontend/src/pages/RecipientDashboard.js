@@ -606,14 +606,43 @@ const RecipientDashboard = () => {
       if (payload.requestId === activeTrackingRequest._id) {
         setTrackingData(prev => {
           if (!prev) return prev;
-          if (payload.senderRole === 'donor' && payload.location) {
+          const isDonorUpdate = payload.role === 'donor' || payload.senderRole === 'donor';
+          if (isDonorUpdate) {
+            const loc = payload.location || {
+              address: payload.address,
+              lat: payload.lat,
+              lng: payload.lng,
+              accuracy: payload.accuracy,
+              lastUpdated: payload.lastUpdated
+            };
+            const updatedActiveDonor = prev.activeDonor ? {
+              ...prev.activeDonor,
+              address: loc.address || prev.activeDonor.address,
+              currentLocation: {
+                ...prev.activeDonor.currentLocation,
+                ...loc
+              },
+              trackingStatus: payload.trackingStatus || prev.activeDonor.trackingStatus
+            } : prev.activeDonor;
+
+            const updatedAllDonors = (prev.allDonors || []).map(d => {
+              if (d.responderId?.toString() === payload.participantId?.toString()) {
+                return {
+                  ...d,
+                  address: loc.address || d.address,
+                  currentLocation: {
+                    ...d.currentLocation,
+                    ...loc
+                  }
+                };
+              }
+              return d;
+            });
+
             return {
               ...prev,
-              activeDonor: prev.activeDonor ? {
-                ...prev.activeDonor,
-                currentLocation: payload.location,
-                trackingStatus: payload.trackingStatus || prev.activeDonor.trackingStatus
-              } : prev.activeDonor
+              activeDonor: updatedActiveDonor,
+              allDonors: updatedAllDonors
             };
           }
           return prev;
@@ -1650,6 +1679,22 @@ const RecipientDashboard = () => {
                                       <span className="ml-2 text-rose-700 font-semibold">{donor.bloodGroup}</span>
                                       {donor.phone && (
                                         <p className="text-gray-600 mt-0.5">📞 {donor.phone}</p>
+                                      )}
+                                      {(donor.address || donor.currentLocation?.address) && (
+                                        <p className="text-gray-700 mt-0.5 flex items-center gap-1 font-medium">
+                                          <MapPinIcon className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                          <span className="truncate">{donor.address || donor.currentLocation?.address}</span>
+                                        </p>
+                                      )}
+                                      {donor.directionsUrl && (
+                                        <a
+                                          href={donor.directionsUrl}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="inline-flex items-center gap-1 text-[11px] text-blue-600 hover:text-blue-800 font-semibold mt-0.5"
+                                        >
+                                          <span>Directions to Donor Address &rarr;</span>
+                                        </a>
                                       )}
                                       <div className="mt-1 flex items-center gap-1.5 text-[11px]">
                                         {donor.isExpired ? (

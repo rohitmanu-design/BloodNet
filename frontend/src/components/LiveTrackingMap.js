@@ -151,6 +151,13 @@ const LiveTrackingMap = ({
       addressesToLookup.push(hospitalInfo.address);
     }
 
+    const donorLat = parseFloat(donorInfo?.currentLocation?.lat || donorInfo?.lat);
+    const donorLng = parseFloat(donorInfo?.currentLocation?.lng || donorInfo?.lng);
+    const donorAddr = (donorInfo?.currentLocation?.address || donorInfo?.address || '').trim();
+    if ((isNaN(donorLat) || isNaN(donorLng) || (donorLat === 0 && donorLng === 0)) && donorAddr) {
+      addressesToLookup.push(donorAddr);
+    }
+
     addressesToLookup.forEach(async (addr) => {
       const cleanAddr = addr.trim();
       if (!cleanAddr || resolvedCoords[cleanAddr]) return;
@@ -331,22 +338,35 @@ const LiveTrackingMap = ({
 
     // Donor location: only shown if within unexpired 24-hour window
     const donorAllowed = !hasExpired && !isRequestClosed && !donorInfo?.isExpired;
-    if (donorAllowed && donorInfo?.currentLocation?.lat) {
-      const donorLat = parseFloat(donorInfo.currentLocation.lat);
-      const donorLng = parseFloat(donorInfo.currentLocation.lng);
-      if (!isNaN(donorLat) && !isNaN(donorLng) && (donorLat !== 0 || donorLng !== 0)) {
-        pts.push({
-          type: 'donor',
-          title: `Donor: ${donorInfo?.name || 'Responding Donor'}`,
-          lat: donorLat,
-          lng: donorLng,
-          accuracy: donorInfo?.currentLocation?.accuracy,
-          lastUpdated: donorInfo?.currentLocation?.lastUpdated,
-          color: '#059669',
-          iconLetter: 'D',
-          directionsUrl: buildDirectionsUrl(donorLat, donorLng, donorInfo?.currentLocation?.address)
-        });
+    if (donorAllowed && (donorInfo?.currentLocation?.lat || donorInfo?.currentLocation?.address || donorInfo?.address || donorInfo?.lat)) {
+      let donorLat = parseFloat(donorInfo?.currentLocation?.lat || donorInfo?.lat);
+      let donorLng = parseFloat(donorInfo?.currentLocation?.lng || donorInfo?.lng);
+      const donorAddr = (donorInfo?.currentLocation?.address || donorInfo?.address || '').trim();
+
+      if ((isNaN(donorLat) || isNaN(donorLng) || (donorLat === 0 && donorLng === 0)) && donorAddr && resolvedCoords[donorAddr]) {
+        donorLat = resolvedCoords[donorAddr].lat;
+        donorLng = resolvedCoords[donorAddr].lng;
       }
+
+      const hasDonorCoords = !isNaN(donorLat) && !isNaN(donorLng) && (donorLat !== 0 || donorLng !== 0);
+      const donorDirectionsUrl = buildDirectionsUrl(
+        hasDonorCoords ? donorLat : null,
+        hasDonorCoords ? donorLng : null,
+        donorAddr
+      );
+
+      pts.push({
+        type: 'donor',
+        title: `Donor: ${donorInfo?.name || 'Responding Donor'}`,
+        lat: hasDonorCoords ? donorLat : null,
+        lng: hasDonorCoords ? donorLng : null,
+        address: donorAddr || (hasDonorCoords ? 'Verified GPS Location' : 'Donor Address'),
+        accuracy: donorInfo?.currentLocation?.accuracy,
+        lastUpdated: donorInfo?.currentLocation?.lastUpdated,
+        color: '#059669',
+        iconLetter: 'D',
+        directionsUrl: donorDirectionsUrl
+      });
     }
 
     return pts;
@@ -434,7 +454,7 @@ const LiveTrackingMap = ({
   }, [googleMapsReady, points]);
 
   // Tracking status indicators
-  const donorLocationSharingActive = !hasExpired && donorInfo?.donorShareLocation && donorInfo?.currentLocation?.lat && !isRequestClosed;
+  const donorLocationSharingActive = !hasExpired && (donorInfo?.donorShareLocation || donorInfo?.shareLocation) && (donorInfo?.currentLocation?.address || donorInfo?.address || donorInfo?.currentLocation?.lat || donorInfo?.lat) && !isRequestClosed;
   const donorStale = donorInfo?.currentLocation?.lastUpdated && isStale(donorInfo.currentLocation.lastUpdated);
 
   const recipientSharingActive = !hasExpired && requesterLocation?.lat && !isRequestClosed;
@@ -566,8 +586,8 @@ const LiveTrackingMap = ({
                       </span>
                     )}
                   </div>
-                  <p className="text-gray-600 text-xs mt-0.5 break-words line-clamp-2" title={pt.address}>
-                    {pt.address || `${pt.lat?.toFixed(4)}, ${pt.lng?.toFixed(4)}`}
+                  <p className="text-gray-700 text-xs mt-0.5 break-words font-medium line-clamp-2" title={pt.address}>
+                    📍 {pt.address || (pt.lat ? `Near (${pt.lat?.toFixed(4)}, ${pt.lng?.toFixed(4)})` : 'Address pending')}
                   </p>
                 </div>
               </div>
@@ -587,7 +607,7 @@ const LiveTrackingMap = ({
           ))
         ) : (
           <div className="text-xs text-gray-500 py-1">
-            📍 Coordinates pending GPS connection or participant confirmation.
+            📍 Address or coordinates pending participant confirmation.
           </div>
         )}
       </div>
@@ -720,12 +740,15 @@ const LiveTrackingMap = ({
               {donorInfo?.currentLocation?.lastUpdated ? formatTimeAgo(donorInfo.currentLocation.lastUpdated) : 'Standby'}
             </span>
           </div>
-          <p className="text-xs text-gray-800 font-medium truncate">
+          <p className="text-xs text-gray-800 font-bold truncate">
             {donorInfo?.name || 'Awaiting donor response'}
+          </p>
+          <p className="text-[11px] text-gray-600 truncate font-medium" title={donorInfo?.currentLocation?.address || donorInfo?.address}>
+            📍 {donorInfo?.currentLocation?.address || donorInfo?.address || 'Address provided upon acceptance'}
           </p>
           <div className="text-[11px] flex items-center justify-between pt-1 border-t border-gray-100">
             <span className="text-gray-500">
-              {donorLocationSharingActive ? `Accuracy: ±${Math.round(donorInfo.currentLocation?.accuracy || 15)}m` : 'Location private'}
+              {donorLocationSharingActive ? 'Address-tracked session' : 'Standby'}
             </span>
             <span className={`font-semibold ${hasExpired || donorInfo?.isExpired ? 'text-rose-600' : (donorLocationSharingActive ? (donorStale ? 'text-amber-600' : 'text-emerald-600') : 'text-gray-400')}`}>
               {hasExpired || donorInfo?.isExpired ? 'Expired (24h)' : (donorLocationSharingActive ? (donorStale ? 'Stale' : 'Live Sharing') : 'Off')}

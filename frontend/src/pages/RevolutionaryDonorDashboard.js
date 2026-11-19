@@ -84,6 +84,11 @@ const RevolutionaryDonorDashboard = () => {
   const [activeDonationTracking, setActiveDonationTracking] = useState(null);
   const [donorCoords, setDonorCoords] = useState(null);
   const [donorTrackingStatus, setDonorTrackingStatus] = useState('active');
+  const [donorAddress, setDonorAddress] = useState(() => {
+    return user?.location?.address || user?.address || (user?.city && user?.state ? `${user.city}, ${user.state}` : '') || '';
+  });
+  const [isEditingAddress, setIsEditingAddress] = useState(false);
+  const [tempAddress, setTempAddress] = useState('');
   const watchIdRef = useRef(null);
   const lastBroadcastTimeRef = useRef(0);
 
@@ -105,6 +110,37 @@ const RevolutionaryDonorDashboard = () => {
     { donations: 25, title: 'Legend', icon: '👑', color: 'from-indigo-500 to-indigo-600' },
     { donations: 50, title: 'Life Immortal', icon: '🌟', color: 'from-rose-500 to-rose-600' }
   ];
+
+  // Synchronize donor address if user object updates
+  useEffect(() => {
+    if (user && !donorAddress) {
+      const userAddr = user.location?.address || user.address || (user.city && user.state ? `${user.city}, ${user.state}` : '');
+      if (userAddr) setDonorAddress(userAddr);
+    }
+  }, [user, donorAddress]);
+
+  const handleUpdateDonorAddress = async (newAddr) => {
+    const clean = (newAddr || '').trim();
+    if (!clean) return;
+    try {
+      setDonorAddress(clean);
+      setDonorCoords(prev => ({
+        ...(prev || {}),
+        address: clean,
+        lastUpdated: new Date().toISOString()
+      }));
+      if (activeDonation?._id) {
+        await requestAPI.updateLocation(activeDonation._id, {
+          address: clean
+        });
+        notify('📍 Current location address updated for recipient tracking', 'success');
+      }
+      setIsEditingAddress(false);
+    } catch (err) {
+      console.error('Failed to update address:', err);
+      notify('Failed to update location address', 'error');
+    }
+  };
 
   // Fetch all dashboard data
   const fetchDashboardData = async () => {
@@ -243,6 +279,7 @@ const RevolutionaryDonorDashboard = () => {
             navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 8000 })
           );
           initialCoords = {
+            address: donorAddress || user?.location?.address || user?.address || '',
             lat: pos.coords.latitude,
             lng: pos.coords.longitude,
             accuracy: Math.round(pos.coords.accuracy),
@@ -254,10 +291,15 @@ const RevolutionaryDonorDashboard = () => {
         }
       }
 
+      const defaultAddr = donorAddress || user?.location?.address || user?.address || (user?.city && user?.state ? `${user.city}, ${user.state}` : '') || '';
       await requestAPI.respondToRequest(pendingAcceptRequest._id, {
         response: 'accepted',
         shareLocation: acceptConsentShareLocation,
-        currentLocation: initialCoords
+        address: defaultAddr,
+        currentLocation: {
+          ...(initialCoords || {}),
+          address: defaultAddr
+        }
       });
 
       const newActive = {
@@ -427,8 +469,16 @@ const RevolutionaryDonorDashboard = () => {
       return;
     }
 
+    const activeAddr = donorAddress || user?.location?.address || user?.address || '';
+
+    // If geolocation is not available, broadcast address-based location immediately
     if (!navigator.geolocation) {
-      console.warn('Geolocation not supported on this device');
+      console.warn('Geolocation not supported on this device, using address-based tracking');
+      if (activeAddr) {
+        requestAPI.updateLocation(activeDonation._id, {
+          address: activeAddr
+        }).catch(() => {});
+      }
       return;
     }
 
@@ -437,6 +487,7 @@ const RevolutionaryDonorDashboard = () => {
         const { latitude, longitude, accuracy } = pos.coords;
         const now = Date.now();
         const updatedCoords = {
+          address: activeAddr,
           lat: latitude,
           lng: longitude,
           accuracy: Math.round(accuracy),
@@ -448,6 +499,7 @@ const RevolutionaryDonorDashboard = () => {
         if (now - lastBroadcastTimeRef.current >= 15000) {
           lastBroadcastTimeRef.current = now;
           requestAPI.updateLocation(activeDonation._id, {
+            address: activeAddr,
             lat: latitude,
             lng: longitude,
             accuracy: Math.round(accuracy)
@@ -455,7 +507,20 @@ const RevolutionaryDonorDashboard = () => {
         }
       },
       (err) => {
-        console.warn('Geolocation watch error:', err.message);
+        console.warn('Geolocation watch error, falling back to address-based tracking:', err.message);
+        if (activeAddr) {
+          setDonorCoords(prev => ({
+            ...(prev || {}),
+            address: activeAddr,
+            lastUpdated: new Date().toISOString()
+          }));
+          if (Date.now() - lastBroadcastTimeRef.current >= 30000) {
+            lastBroadcastTimeRef.current = Date.now();
+            requestAPI.updateLocation(activeDonation._id, {
+              address: activeAddr
+            }).catch(() => {});
+          }
+        }
       },
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
     );
@@ -1136,6 +1201,52 @@ const RevolutionaryDonorDashboard = () => {
                         )}
                       </div>
 
+                      {/* Tracked Physical Location / Address Bar */}
+                      <div className="p-3 bg-white/95 rounded-xl border border-emerald-200 text-xs flex flex-wrap items-center justify-between gap-3 shadow-2xs">
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <MapPinIcon className="w-4 h-4 text-emerald-600 shrink-0" />
+                          <span className="font-bold text-gray-800 shrink-0">Your Tracked Address:</span>
+                          {isEditingAddress ? (
+                            <div className="flex items-center gap-2 flex-1 max-w-md">
+                              <input
+                                type="text"
+                                value={tempAddress}
+                                onChange={(e) => setTempAddress(e.target.value)}
+                                placeholder="e.g. Gangapuri, Wai or Current Landmark"
+                                className="px-2.5 py-1 text-xs border border-emerald-300 rounded-lg w-full focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                              />
+                              <button
+                                onClick={() => handleUpdateDonorAddress(tempAddress)}
+                                className="px-3 py-1 bg-emerald-600 text-white font-bold rounded-lg hover:bg-emerald-700 text-xs shrink-0"
+                              >
+                                Save
+                              </button>
+                              <button
+                                onClick={() => setIsEditingAddress(false)}
+                                className="px-2.5 py-1 text-gray-500 hover:text-gray-700 text-xs shrink-0"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          ) : (
+                            <span className="text-gray-700 font-medium truncate" title={donorAddress || 'Profile address'}>
+                              {donorAddress || user?.location?.address || user?.address || 'Profile Address'}
+                            </span>
+                          )}
+                        </div>
+                        {!isEditingAddress && (
+                          <button
+                            onClick={() => {
+                              setTempAddress(donorAddress || user?.location?.address || user?.address || '');
+                              setIsEditingAddress(true);
+                            }}
+                            className="text-emerald-700 hover:text-emerald-900 font-bold underline text-xs shrink-0"
+                          >
+                            Update Location Address
+                          </button>
+                        )}
+                      </div>
+
                       {/* Embedded Live Map */}
                       <div className="rounded-2xl overflow-hidden border border-gray-200 shadow-sm">
                         <LiveTrackingMap
@@ -1146,7 +1257,14 @@ const RevolutionaryDonorDashboard = () => {
                             name: user?.name,
                             phone: user?.phone,
                             bloodGroup: user?.bloodGroup,
-                            currentLocation: donorCoords,
+                            address: donorAddress || user?.location?.address || user?.address || [user?.city, user?.state].filter(Boolean).join(', ') || 'Donor Location',
+                            currentLocation: {
+                              address: donorAddress || user?.location?.address || user?.address || '',
+                              lat: donorCoords?.lat,
+                              lng: donorCoords?.lng,
+                              accuracy: donorCoords?.accuracy,
+                              lastUpdated: donorCoords?.lastUpdated
+                            },
                             trackingStatus: donorTrackingStatus,
                             shareLocation: activeDonation.shareLocation,
                             expiresAt: activeDonationTracking?.expiresAt,

@@ -576,22 +576,32 @@ const respondToRequest = async (req, res) => {
 
     const donorShareLocation = Boolean(req.body.shareLocation);
     let donorCurrentLocation = null;
-    if (req.user.role === 'donor' && donorShareLocation) {
-      if (req.body.currentLocation?.lat && req.body.currentLocation?.lng) {
-        donorCurrentLocation = {
-          lat: parseFloat(req.body.currentLocation.lat),
-          lng: parseFloat(req.body.currentLocation.lng),
-          accuracy: parseFloat(req.body.currentLocation.accuracy) || null,
-          lastUpdated: new Date()
-        };
-      } else if (req.user.location?.lat && req.user.location?.lng) {
-        donorCurrentLocation = {
-          lat: req.user.location.lat,
-          lng: req.user.location.lng,
-          accuracy: null,
-          lastUpdated: new Date()
-        };
+    if (req.user.role === 'donor') {
+      const donorAddress = (req.body.address || req.body.currentLocation?.address || req.user.location?.address || req.user.address || [req.user.city, req.user.state].filter(Boolean).join(', ') || '').trim();
+      let donorLat = req.body.currentLocation?.lat !== undefined && req.body.currentLocation?.lat !== null
+        ? parseFloat(req.body.currentLocation.lat)
+        : (req.user.location?.lat !== undefined && req.user.location?.lat !== null ? parseFloat(req.user.location.lat) : null);
+      let donorLng = req.body.currentLocation?.lng !== undefined && req.body.currentLocation?.lng !== null
+        ? parseFloat(req.body.currentLocation.lng)
+        : (req.user.location?.lng !== undefined && req.user.location?.lng !== null ? parseFloat(req.user.location.lng) : null);
+
+      if ((!donorLat || !donorLng || (donorLat === 0 && donorLng === 0)) && donorAddress) {
+        try {
+          const geo = await geocodeAddress(donorAddress);
+          if (geo && geo.lat && geo.lng) {
+            donorLat = geo.lat;
+            donorLng = geo.lng;
+          }
+        } catch (e) {}
       }
+
+      donorCurrentLocation = {
+        address: donorAddress,
+        lat: (!isNaN(donorLat) && donorLat !== null && donorLat !== 0) ? donorLat : null,
+        lng: (!isNaN(donorLng) && donorLng !== null && donorLng !== 0) ? donorLng : null,
+        accuracy: parseFloat(req.body.currentLocation?.accuracy) || null,
+        lastUpdated: new Date()
+      };
     }
 
     request.responses.push({
@@ -757,7 +767,7 @@ const getRequestTracking = async (req, res) => {
       .populate('activeDonorId', 'name phone bloodGroup')
       .populate('hospitalId', 'hospitalName name contactNumber phone location address')
       .populate('acceptedHospitalInfo.hospitalId', 'hospitalName name contactNumber phone location address')
-      .populate('responses.responderId', 'name phone bloodGroup hospitalName contactNumber');
+      .populate('responses.responderId', 'name phone bloodGroup hospitalName contactNumber location address city state');
 
     if (!request) {
       return res.status(404).json({ message: 'Request not found' });
@@ -905,13 +915,33 @@ const getRequestTracking = async (req, res) => {
         const respId = r.responderId?._id || r.responderId;
         const isCoord = (request.activeDonorId?._id || request.activeDonorId)?.toString() === respId?.toString();
         const isSelected = request.selectedResponderId?.toString() === respId?.toString();
+
+        const donorUser = r.responderId && typeof r.responderId === 'object' ? r.responderId : {};
+        const donorAddress = (r.currentLocation?.address ||
+          donorUser.location?.address ||
+          donorUser.address ||
+          [donorUser.city, donorUser.state].filter(Boolean).join(', ') ||
+          '').trim();
+        const donorLat = r.currentLocation?.lat ?? donorUser.location?.lat ?? null;
+        const donorLng = r.currentLocation?.lng ?? donorUser.location?.lng ?? null;
+        const hasValidDonorCoords = donorLat !== null && donorLng !== null && !isNaN(donorLat) && !isNaN(donorLng) && (donorLat !== 0 || donorLng !== 0);
+        const directionsUrl = hasValidDonorCoords
+          ? `https://www.google.com/maps/dir/?api=1&destination=${donorLat},${donorLng}`
+          : (donorAddress ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(cleanAddressForMaps(donorAddress))}` : null);
+
+        const hasLocationData = Boolean(donorAddress || hasValidDonorCoords);
+
         return {
           responseId: r._id,
           responderId: respId,
           responderType: 'donor',
-          name: r.responderId?.name || 'Verified Donor',
-          phone: r.responderId?.phone || '',
-          bloodGroup: r.responderId?.bloodGroup || '',
+          name: donorUser.name || 'Verified Donor',
+          phone: donorUser.phone || '',
+          bloodGroup: donorUser.bloodGroup || '',
+          address: donorAddress,
+          lat: donorLat,
+          lng: donorLng,
+          directionsUrl,
           unitsReserved: 0,
           status: r.status || 'accepted',
           isSelected,
@@ -923,12 +953,13 @@ const getRequestTracking = async (req, res) => {
           donorShareLocation: r.donorShareLocation || false,
           trackingStatus: isRequestClosed ? 'stopped' : (dExp.isExpired ? 'expired' : (r.trackingStatus || 'inactive')),
           isCoordinating: isCoord,
-          currentLocation: canShare && r.currentLocation?.lat ? {
-            lat: r.currentLocation.lat,
-            lng: r.currentLocation.lng,
-            accuracy: r.currentLocation.accuracy,
-            lastUpdated: r.currentLocation.lastUpdated,
-            isStale: checkStaleness(r.currentLocation.lastUpdated)
+          currentLocation: canShare && hasLocationData ? {
+            address: donorAddress,
+            lat: donorLat,
+            lng: donorLng,
+            accuracy: r.currentLocation?.accuracy || null,
+            lastUpdated: r.currentLocation?.lastUpdated || r.acceptedAt || r.timestamp,
+            isStale: checkStaleness(r.currentLocation?.lastUpdated)
           } : null
         };
       });
@@ -979,14 +1010,62 @@ const getRequestTracking = async (req, res) => {
       if (!hospitalInfo && allAcceptedHospitals.length > 0) {
         hospitalInfo = allAcceptedHospitals.find(h => h.isSelected) || allAcceptedHospitals[0] || null;
       }
+    } else if (isHospital) {
+      // Hospital can also see active donor coordination information if present
+      const coordinatingDonor = acceptedResponses.find(r => (request.activeDonorId?._id || request.activeDonorId)?.toString() === (r.responderId?._id || r.responderId)?.toString()) ||
+        acceptedResponses.find(r => request.selectedResponderId?.toString() === (r.responderId?._id || r.responderId)?.toString()) ||
+        acceptedResponses[0];
+      if (coordinatingDonor) {
+        const dAcceptedAt = coordinatingDonor.acceptedAt || coordinatingDonor.timestamp;
+        const dExpiresAt = coordinatingDonor.locationSharingExpiresAt;
+        const dExp = getResponderExpiration(dAcceptedAt, dExpiresAt);
+        const canShare = coordinatingDonor.donorShareLocation === true && !isRequestClosed && !dExp.isExpired;
+        const donorUser = coordinatingDonor.responderId && typeof coordinatingDonor.responderId === 'object' ? coordinatingDonor.responderId : {};
+        const donorAddress = (coordinatingDonor.currentLocation?.address || donorUser.location?.address || donorUser.address || '').trim();
+        const donorLat = coordinatingDonor.currentLocation?.lat ?? donorUser.location?.lat ?? null;
+        const donorLng = coordinatingDonor.currentLocation?.lng ?? donorUser.location?.lng ?? null;
+        donorInfo = {
+          responderId: coordinatingDonor.responderId?._id || coordinatingDonor.responderId,
+          name: donorUser.name || 'Verified Donor',
+          phone: donorUser.phone || '',
+          bloodGroup: donorUser.bloodGroup || '',
+          address: donorAddress,
+          lat: donorLat,
+          lng: donorLng,
+          currentLocation: canShare && (donorAddress || donorLat) ? {
+            address: donorAddress,
+            lat: donorLat,
+            lng: donorLng,
+            accuracy: coordinatingDonor.currentLocation?.accuracy || null,
+            lastUpdated: coordinatingDonor.currentLocation?.lastUpdated || dAcceptedAt,
+            isStale: checkStaleness(coordinatingDonor.currentLocation?.lastUpdated)
+          } : null
+        };
+      }
     } else if (isDonor) {
       // Donor only sees their own response and tracking state, NEVER other donors' data
       const canShare = donorResponse.donorShareLocation === true && !isRequestClosed && !myDonorExp.isExpired;
       const respId = donorResponse.responderId?._id || donorResponse.responderId;
       const isCoord = (request.activeDonorId?._id || request.activeDonorId)?.toString() === req.user.id.toString();
+      const donorAddress = (donorResponse.currentLocation?.address ||
+        req.user.location?.address ||
+        req.user.address ||
+        [req.user.city, req.user.state].filter(Boolean).join(', ') ||
+        '').trim();
+      const donorLat = donorResponse.currentLocation?.lat ?? req.user.location?.lat ?? null;
+      const donorLng = donorResponse.currentLocation?.lng ?? req.user.location?.lng ?? null;
+      const hasValidDonorCoords = donorLat !== null && donorLng !== null && !isNaN(donorLat) && !isNaN(donorLng) && (donorLat !== 0 || donorLng !== 0);
+      const directionsUrl = hasValidDonorCoords
+        ? `https://www.google.com/maps/dir/?api=1&destination=${donorLat},${donorLng}`
+        : (donorAddress ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(cleanAddressForMaps(donorAddress))}` : null);
+
       donorInfo = {
         responderId: respId,
         name: req.user.name || 'You',
+        address: donorAddress,
+        lat: donorLat,
+        lng: donorLng,
+        directionsUrl,
         acceptedAt: myDonorAcceptedAt,
         expiresAt: myDonorExp.expiresAt,
         isExpired: myDonorExp.isExpired,
@@ -995,12 +1074,13 @@ const getRequestTracking = async (req, res) => {
         donorShareLocation: donorResponse.donorShareLocation || false,
         trackingStatus: isRequestClosed ? 'stopped' : (myDonorExp.isExpired ? 'expired' : (donorResponse.trackingStatus || 'inactive')),
         isCoordinating: isCoord,
-        currentLocation: canShare && donorResponse.currentLocation?.lat ? {
-          lat: donorResponse.currentLocation.lat,
-          lng: donorResponse.currentLocation.lng,
-          accuracy: donorResponse.currentLocation.accuracy,
-          lastUpdated: donorResponse.currentLocation.lastUpdated,
-          isStale: checkStaleness(donorResponse.currentLocation.lastUpdated)
+        currentLocation: canShare && (donorAddress || hasValidDonorCoords) ? {
+          address: donorAddress,
+          lat: donorLat,
+          lng: donorLng,
+          accuracy: donorResponse.currentLocation?.accuracy || null,
+          lastUpdated: donorResponse.currentLocation?.lastUpdated || donorResponse.acceptedAt,
+          isStale: checkStaleness(donorResponse.currentLocation?.lastUpdated)
         } : null
       };
     }
@@ -1067,18 +1147,38 @@ const getRequestTracking = async (req, res) => {
 const updateLocation = async (req, res) => {
   try {
     const { requestId } = req.params;
-    const { lat, lng, accuracy } = req.body;
+    let { lat, lng, accuracy, address } = req.body;
     const userId = req.user.id;
 
-    const latNum = parseFloat(lat);
-    const lngNum = parseFloat(lng);
-    const accNum = accuracy !== undefined && accuracy !== null ? parseFloat(accuracy) : null;
+    let latNum = (lat !== undefined && lat !== null && lat !== '') ? parseFloat(lat) : null;
+    let lngNum = (lng !== undefined && lng !== null && lng !== '') ? parseFloat(lng) : null;
+    let accNum = (accuracy !== undefined && accuracy !== null && accuracy !== '') ? parseFloat(accuracy) : null;
+    let addressStr = (address || '').trim();
 
-    if (isNaN(latNum) || latNum < -90 || latNum > 90) {
-      return res.status(400).json({ message: 'Invalid latitude (-90 to 90)' });
+    // If address is provided without valid coordinates, geocode the address
+    if ((latNum === null || lngNum === null || isNaN(latNum) || isNaN(lngNum)) && addressStr) {
+      try {
+        const geo = await geocodeAddress(addressStr);
+        if (geo && geo.lat && geo.lng) {
+          latNum = geo.lat;
+          lngNum = geo.lng;
+        }
+      } catch (err) {}
     }
-    if (isNaN(lngNum) || lngNum < -180 || lngNum > 180) {
-      return res.status(400).json({ message: 'Invalid longitude (-180 to 180)' });
+
+    // If coordinates are provided without address, reverse-geocode to get the readable address
+    if (!addressStr && latNum !== null && lngNum !== null && !isNaN(latNum) && !isNaN(lngNum)) {
+      try {
+        const rev = await reverseGeocode(latNum, lngNum);
+        if (rev && rev.address) {
+          addressStr = rev.address;
+        }
+      } catch (err) {}
+    }
+
+    const hasValidCoords = latNum !== null && lngNum !== null && !isNaN(latNum) && !isNaN(lngNum) && latNum >= -90 && latNum <= 90 && lngNum >= -180 && lngNum <= 180;
+    if (!hasValidCoords && !addressStr) {
+      return res.status(400).json({ message: 'Valid address or coordinates are required for location update' });
     }
 
     const request = await Request.findById(requestId);
@@ -1124,8 +1224,11 @@ const updateLocation = async (req, res) => {
         }
       }
 
-      request.location.lat = latNum;
-      request.location.lng = lngNum;
+      if (addressStr) request.location.address = addressStr;
+      if (hasValidCoords) {
+        request.location.lat = latNum;
+        request.location.lng = lngNum;
+      }
       if (accNum !== null) request.location.accuracy = accNum;
       request.location.lastUpdated = updateTime;
       request.location.trackingStatus = 'active';
@@ -1134,8 +1237,9 @@ const updateLocation = async (req, res) => {
         requestId,
         participantId: userId,
         role: 'recipient',
-        lat: latNum,
-        lng: lngNum,
+        address: request.location.address,
+        lat: request.location.lat,
+        lng: request.location.lng,
         accuracy: accNum,
         lastUpdated: updateTime,
         isStale: false
@@ -1145,7 +1249,7 @@ const updateLocation = async (req, res) => {
       if (donorExp.isExpired) {
         donorResp.trackingStatus = 'expired';
         donorResp.donorShareLocation = false;
-        donorResp.currentLocation = { lat: null, lng: null, accuracy: null, lastUpdated: null };
+        donorResp.currentLocation = { address: '', lat: null, lng: null, accuracy: null, lastUpdated: null };
         await request.save();
 
         if (global.io) {
@@ -1167,9 +1271,12 @@ const updateLocation = async (req, res) => {
       if (!donorResp.donorShareLocation || donorResp.trackingStatus === 'stopped') {
         return res.status(400).json({ message: 'Location sharing is disabled or turned off for your donor account' });
       }
+
+      const finalAddress = addressStr || donorResp.currentLocation?.address || '';
       donorResp.currentLocation = {
-        lat: latNum,
-        lng: lngNum,
+        address: finalAddress,
+        lat: hasValidCoords ? latNum : (donorResp.currentLocation?.lat || null),
+        lng: hasValidCoords ? lngNum : (donorResp.currentLocation?.lng || null),
         accuracy: accNum,
         lastUpdated: updateTime
       };
@@ -1179,8 +1286,9 @@ const updateLocation = async (req, res) => {
         requestId,
         participantId: userId,
         role: 'donor',
-        lat: latNum,
-        lng: lngNum,
+        address: finalAddress,
+        lat: donorResp.currentLocation.lat,
+        lng: donorResp.currentLocation.lng,
         accuracy: accNum,
         lastUpdated: updateTime,
         isStale: false,
