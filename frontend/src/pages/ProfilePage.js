@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
-import { userAPI } from '../services/api';
+import { userAPI, authAPI } from '../services/api';
 import {
   UserIcon,
   CameraIcon,
@@ -26,6 +26,20 @@ import Input from '../components/ui/Input';
 
 const ProfilePage = () => {
   const { user, updateUser } = useAuth();
+
+  const isEmailVerified = Boolean(user?.emailVerified || user?.isEmailVerified || user?.verified);
+  const isPhoneVerified = Boolean(user?.phoneVerified || user?.isPhoneVerified);
+
+  // Sync fresh profile from server on mount
+  useEffect(() => {
+    authAPI.getProfile().then(res => {
+      if (res.data?.user) {
+        updateUser(res.data.user);
+      }
+    }).catch(err => {
+      console.warn('Could not refresh profile:', err.message);
+    });
+  }, []);
 
   // Helper to build profile image url
   const getImageUrl = (imagePath) => {
@@ -290,7 +304,7 @@ const ProfilePage = () => {
                     {user?.role === 'admin' && '🛡️ Super Administrator'}
                   </span>
 
-                  {user?.isEmailVerified ? (
+                  {isEmailVerified ? (
                     <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
                       <CheckCircleIcon className="w-3.5 h-3.5" /> Email Verified
                     </span>
@@ -300,7 +314,7 @@ const ProfilePage = () => {
                     </span>
                   )}
 
-                  {user?.isPhoneVerified && (
+                  {isPhoneVerified && (
                     <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">
                       <CheckCircleIcon className="w-3.5 h-3.5" /> Phone Verified
                     </span>
@@ -731,7 +745,7 @@ const ProfilePage = () => {
                     <span className="text-xs text-gray-400 block font-medium">Email Address</span>
                     <span className="font-semibold text-gray-900 flex items-center gap-1.5">
                       {user?.email}
-                      {user?.isEmailVerified ? (
+                      {isEmailVerified ? (
                         <CheckCircleIcon className="w-4 h-4 text-emerald-500 inline" title="Verified Email" />
                       ) : (
                         <span className="text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded font-normal">Pending</span>
@@ -976,15 +990,15 @@ const ProfilePage = () => {
 
                   <div className="flex items-center justify-between py-1">
                     <span className="text-gray-500">Email Verification</span>
-                    <span className={user?.isEmailVerified ? 'text-emerald-600 font-bold' : 'text-amber-600 font-bold'}>
-                      {user?.isEmailVerified ? 'Verified' : 'Unverified'}
+                    <span className={isEmailVerified ? 'text-emerald-600 font-bold' : 'text-amber-600 font-bold'}>
+                      {isEmailVerified ? 'Verified' : 'Unverified'}
                     </span>
                   </div>
 
                   <div className="flex items-center justify-between py-1">
                     <span className="text-gray-500">Phone Verification</span>
-                    <span className={user?.isPhoneVerified ? 'text-blue-600 font-bold' : 'text-gray-400 font-medium'}>
-                      {user?.isPhoneVerified ? 'Verified' : 'Not verified'}
+                    <span className={isPhoneVerified ? 'text-blue-600 font-bold' : 'text-gray-400 font-medium'}>
+                      {isPhoneVerified ? 'Verified' : 'Not verified'}
                     </span>
                   </div>
 

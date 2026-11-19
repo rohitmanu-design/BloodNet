@@ -182,6 +182,10 @@ userSchema.methods.toJSON = function() {
   delete user.resetPasswordToken;
   delete user.resetPasswordExpire;
   delete user.emailVerificationToken;
+  user.isEmailVerified = Boolean(user.emailVerified || user.verified);
+  user.isPhoneVerified = Boolean(user.phoneVerified);
+  user.emailVerified = Boolean(user.emailVerified || user.verified);
+  user.verified = Boolean(user.verified || user.emailVerified);
   return user;
 };
 
