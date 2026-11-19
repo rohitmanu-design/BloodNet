@@ -1592,19 +1592,19 @@ const RecipientDashboard = () => {
                                 return (
                                   <div
                                     key={hosp.responderId || hosp.hospitalId || idx}
-                                    className={`p-3 rounded-lg border text-xs transition-colors ${
+                                    className={`p-3 rounded-xl border text-xs transition-colors overflow-hidden ${
                                       isSelected ? 'bg-white border-blue-500 shadow-sm ring-1 ring-blue-300' : 'bg-white/80 border-blue-200'
                                     }`}
                                   >
-                                    <div className="flex items-start justify-between gap-2">
+                                    <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
                                       <div className="space-y-1 min-w-0 flex-1">
                                         <div className="flex items-center gap-1.5 flex-wrap">
-                                          <span className="font-bold text-gray-900">{hosp.hospitalName || hosp.name}</span>
+                                          <span className="font-bold text-gray-900 text-sm">{hosp.hospitalName || hosp.name}</span>
                                           <span className="text-[10px] px-1.5 py-0.2 rounded bg-blue-100 text-blue-800 font-semibold">
                                             Verified Facility
                                           </span>
                                         </div>
-                                        <p className="text-gray-600 truncate">📍 {hosp.address || 'Address on file'}</p>
+                                        <p className="text-gray-600 break-words">📍 {hosp.address || 'Address on file'}</p>
                                         {hosp.phone && <p className="text-gray-600">📞 {hosp.phone}</p>}
                                         {hosp.unitsReserved > 0 && (
                                           <p className="text-[11px] text-blue-700 font-semibold">
@@ -1612,31 +1612,33 @@ const RecipientDashboard = () => {
                                           </p>
                                         )}
                                         {dirUrl && (
-                                          <a
-                                            href={dirUrl}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 hover:text-blue-900 underline mt-1"
-                                          >
-                                            <span>Get Directions on Google Maps</span>
-                                            <ArrowTopRightOnSquareIcon className="h-3 w-3" />
-                                          </a>
+                                          <div>
+                                            <a
+                                              href={dirUrl}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 hover:text-blue-900 underline mt-0.5"
+                                            >
+                                              <span>Get Directions on Google Maps</span>
+                                              <ArrowTopRightOnSquareIcon className="h-3 w-3" />
+                                            </a>
+                                          </div>
                                         )}
                                       </div>
-                                      <div className="shrink-0 flex flex-col items-end gap-1">
+                                      <div className="shrink-0 flex sm:flex-col items-center sm:items-end justify-between sm:justify-start gap-1.5 pt-2 sm:pt-0 border-t sm:border-t-0 border-gray-100">
                                         {isSelected ? (
-                                          <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold flex items-center gap-1">
-                                            <CheckCircleIcon className="w-3.5 h-3.5 text-emerald-600" />
+                                          <span className="px-3 py-1.5 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold flex items-center gap-1 shadow-2xs">
+                                            <CheckCircleIcon className="w-4 h-4 text-emerald-600" />
                                             Selected Facility
                                           </span>
                                         ) : trackingData.fulfillmentChosen ? (
-                                          <span className="px-2 py-0.5 rounded text-[10px] text-gray-400 bg-gray-100 font-medium">
+                                          <span className="px-3 py-1 rounded-lg text-xs text-gray-400 bg-gray-100 font-medium">
                                             Option Closed
                                           </span>
                                         ) : (
                                           <button
                                             onClick={() => handleSelectFulfillment(hosp.responderId || hosp.hospitalId, hosp.responseId, 'hospital')}
-                                            className="px-2.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold shadow-xs transition-colors"
+                                            className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-xs font-bold shadow-xs transition-all whitespace-nowrap"
                                           >
                                             Choose Hospital Stock
                                           </button>
@@ -1669,69 +1671,84 @@ const RecipientDashboard = () => {
                               return (
                                 <div
                                   key={donor.responderId}
-                                  className={`p-2.5 rounded-lg border text-xs transition-colors ${
-                                    isSelected ? 'bg-white border-rose-500 shadow-sm ring-1 ring-rose-300' : 'bg-white/70 border-gray-200'
+                                  className={`p-3 rounded-xl border text-xs transition-colors overflow-hidden ${
+                                    isSelected ? 'bg-white border-rose-500 shadow-sm ring-1 ring-rose-300' : 'bg-white/90 border-rose-200'
                                   }`}
                                 >
-                                  <div className="flex items-center justify-between">
-                                    <div>
-                                      <span className="font-bold text-gray-900">{donor.name}</span>
-                                      <span className="ml-2 text-rose-700 font-semibold">{donor.bloodGroup}</span>
+                                  <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                                    <div className="space-y-1 min-w-0 flex-1">
+                                      <div className="flex items-center gap-1.5 flex-wrap">
+                                        <span className="font-bold text-gray-900 text-sm">{donor.name}</span>
+                                        <span className="px-2 py-0.5 rounded text-[11px] font-extrabold bg-rose-100 text-rose-800 border border-rose-200">
+                                          {donor.bloodGroup}
+                                        </span>
+                                        {donor.isExpired ? (
+                                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 font-bold">
+                                            24h Expired
+                                          </span>
+                                        ) : donor.donorShareLocation ? (
+                                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 font-semibold flex items-center gap-1">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                                            Live Active
+                                          </span>
+                                        ) : null}
+                                      </div>
+
                                       {donor.phone && (
-                                        <p className="text-gray-600 mt-0.5">📞 {donor.phone}</p>
-                                      )}
-                                      {(donor.address || donor.currentLocation?.address) && (
-                                        <p className="text-gray-700 mt-0.5 flex items-center gap-1 font-medium">
-                                          <MapPinIcon className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                                          <span className="truncate">{donor.address || donor.currentLocation?.address}</span>
+                                        <p className="text-gray-600 flex items-center gap-1 text-xs">
+                                          <span>📞</span>
+                                          <span>{donor.phone}</span>
                                         </p>
                                       )}
-                                      {donor.directionsUrl && (
-                                        <a
-                                          href={donor.directionsUrl}
-                                          target="_blank"
-                                          rel="noopener noreferrer"
-                                          className="inline-flex items-center gap-1 text-[11px] text-blue-600 hover:text-blue-800 font-semibold mt-0.5"
-                                        >
-                                          <span>Directions to Donor Address &rarr;</span>
-                                        </a>
+
+                                      {(donor.address || donor.currentLocation?.address) && (
+                                        <p className="text-gray-700 text-xs flex items-start gap-1 font-medium" title={donor.address || donor.currentLocation?.address}>
+                                          <MapPinIcon className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
+                                          <span className="break-words line-clamp-2">{donor.address || donor.currentLocation?.address}</span>
+                                        </p>
                                       )}
-                                      <div className="mt-1 flex items-center gap-1.5 text-[11px]">
-                                        {donor.isExpired ? (
-                                          <span className="text-rose-700 font-bold">🔴 24h Window Expired</span>
-                                        ) : donor.donorShareLocation ? (
-                                          <span className="text-emerald-700 font-medium">🟢 Live Location Active</span>
-                                        ) : (
-                                          <span className="text-gray-500">⚪ Location Sharing Off</span>
-                                        )}
-                                        <span className="text-gray-400">•</span>
-                                        <span className="text-gray-500 capitalize">{donor.trackingStatus || 'En route'}</span>
-                                      </div>
-                                      {donor.isExpired && (
-                                        <div className="mt-1">
+
+                                      {donor.directionsUrl && (
+                                        <div>
+                                          <a
+                                            href={donor.directionsUrl}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 hover:text-blue-900 underline mt-0.5"
+                                          >
+                                            <span>Get Directions to Donor Address</span>
+                                            <ArrowTopRightOnSquareIcon className="h-3 w-3" />
+                                          </a>
+                                        </div>
+                                      )}
+
+                                      <div className="mt-1 flex items-center gap-1.5 text-[11px] text-gray-500 flex-wrap">
+                                        <span className="capitalize font-medium text-gray-700">{donor.trackingStatus || 'En route'}</span>
+                                        {donor.isExpired && (
                                           <button
                                             onClick={() => handleRenewSharing(donor.responderId)}
                                             className="px-2 py-0.5 rounded bg-rose-100 hover:bg-rose-200 text-rose-800 text-[10px] font-bold transition-colors"
                                           >
                                             + Renew 24h Window
                                           </button>
-                                        </div>
-                                      )}
+                                        )}
+                                      </div>
                                     </div>
-                                    <div className="flex flex-col items-end gap-1">
+
+                                    <div className="shrink-0 flex sm:flex-col items-center sm:items-end justify-between sm:justify-start gap-1.5 pt-2 sm:pt-0 border-t sm:border-t-0 border-gray-100">
                                       {isSelected ? (
-                                        <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold flex items-center gap-1">
-                                          <CheckCircleIcon className="w-3.5 h-3.5 text-emerald-600" />
+                                        <span className="px-3 py-1.5 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold flex items-center gap-1 shadow-2xs">
+                                          <CheckCircleIcon className="w-4 h-4 text-emerald-600" />
                                           Selected Match
                                         </span>
                                       ) : trackingData.fulfillmentChosen ? (
-                                        <span className="px-2 py-0.5 rounded text-[10px] text-gray-400 bg-gray-100 font-medium">
+                                        <span className="px-3 py-1 rounded-lg text-xs text-gray-400 bg-gray-100 font-medium">
                                           Option Closed
                                         </span>
                                       ) : (
                                         <button
                                           onClick={() => handleSelectFulfillment(donor.responderId, donor.responseId, 'donor')}
-                                          className="px-2.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-bold shadow-xs transition-colors"
+                                          className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 active:scale-95 text-white text-xs font-bold shadow-xs transition-all whitespace-nowrap"
                                         >
                                           Choose Donor Match
                                         </button>
