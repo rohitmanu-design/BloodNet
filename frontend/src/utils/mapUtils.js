@@ -37,24 +37,25 @@ export function cleanAddressForMaps(addr) {
 
 /**
  * Builds a reliable Google Maps directions URL.
- * Prioritizes numerical coordinates (lat, lng) for 100% routing success,
- * and falls back to a sanitized address query if coordinates are missing.
+ * Prioritizes a sanitized address query (donor/hospital/recipient address)
+ * so Google Maps routes directly to the verified destination address,
+ * and falls back to numerical coordinates (lat, lng) if no address is available.
  * @param {number|string|null} lat
  * @param {number|string|null} lng
  * @param {string} [fallbackAddress]
  * @returns {string|null}
  */
 export function buildDirectionsUrl(lat, lng, fallbackAddress) {
-  const nLat = parseFloat(lat);
-  const nLng = parseFloat(lng);
-  if (!isNaN(nLat) && !isNaN(nLng) && (nLat !== 0 || nLng !== 0)) {
-    return `https://www.google.com/maps/dir/?api=1&destination=${nLat},${nLng}`;
-  }
   if (fallbackAddress && typeof fallbackAddress === 'string') {
     const clean = cleanAddressForMaps(fallbackAddress);
     if (clean) {
       return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(clean)}`;
     }
+  }
+  const nLat = parseFloat(lat);
+  const nLng = parseFloat(lng);
+  if (!isNaN(nLat) && !isNaN(nLng) && (nLat !== 0 || nLng !== 0)) {
+    return `https://www.google.com/maps/dir/?api=1&destination=${nLat},${nLng}`;
   }
   return null;
 }

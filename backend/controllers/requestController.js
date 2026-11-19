@@ -877,9 +877,9 @@ const getRequestTracking = async (req, res) => {
       }
 
       const hasValidCoords = hospLat && hospLng && !isNaN(hospLat) && !isNaN(hospLng) && (hospLat !== 0 || hospLng !== 0);
-      const directionsUrl = hasValidCoords
-        ? `https://www.google.com/maps/dir/?api=1&destination=${hospLat},${hospLng}`
-        : (hospAddr ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(cleanAddressForMaps(hospAddr))}` : null);
+      const directionsUrl = hospAddr
+        ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(cleanAddressForMaps(hospAddr))}`
+        : (hasValidCoords ? `https://www.google.com/maps/dir/?api=1&destination=${hospLat},${hospLng}` : null);
 
       hospitalInfo = {
         hospitalId: hospSub.hospitalId?._id || hospSub.hospitalId || hospUser._id,
@@ -917,17 +917,17 @@ const getRequestTracking = async (req, res) => {
         const isSelected = request.selectedResponderId?.toString() === respId?.toString();
 
         const donorUser = r.responderId && typeof r.responderId === 'object' ? r.responderId : {};
-        const donorAddress = (r.currentLocation?.address ||
-          donorUser.location?.address ||
+        const donorProfileAddress = (donorUser.location?.address ||
           donorUser.address ||
           [donorUser.city, donorUser.state].filter(Boolean).join(', ') ||
           '').trim();
+        const donorAddress = donorProfileAddress || (r.currentLocation?.address || '').trim();
         const donorLat = r.currentLocation?.lat ?? donorUser.location?.lat ?? null;
         const donorLng = r.currentLocation?.lng ?? donorUser.location?.lng ?? null;
         const hasValidDonorCoords = donorLat !== null && donorLng !== null && !isNaN(donorLat) && !isNaN(donorLng) && (donorLat !== 0 || donorLng !== 0);
-        const directionsUrl = hasValidDonorCoords
-          ? `https://www.google.com/maps/dir/?api=1&destination=${donorLat},${donorLng}`
-          : (donorAddress ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(cleanAddressForMaps(donorAddress))}` : null);
+        const directionsUrl = donorAddress
+          ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(cleanAddressForMaps(donorAddress))}`
+          : (hasValidDonorCoords ? `https://www.google.com/maps/dir/?api=1&destination=${donorLat},${donorLng}` : null);
 
         const hasLocationData = Boolean(donorAddress || hasValidDonorCoords);
 
@@ -982,9 +982,9 @@ const getRequestTracking = async (req, res) => {
         const hLng = r.hospitalInfo?.lng ?? r.responderId?.location?.lng ?? null;
         const isSelected = request.selectedResponderId?.toString() === respId?.toString();
         const hasValidCoords = hLat && hLng && !isNaN(hLat) && !isNaN(hLng) && (hLat !== 0 || hLng !== 0);
-        const directionsUrl = hasValidCoords
-          ? `https://www.google.com/maps/dir/?api=1&destination=${hLat},${hLng}`
-          : (hAddress ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(cleanAddressForMaps(hAddress))}` : null);
+        const directionsUrl = hAddress
+          ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(cleanAddressForMaps(hAddress))}`
+          : (hasValidCoords ? `https://www.google.com/maps/dir/?api=1&destination=${hLat},${hLng}` : null);
 
         return {
           responseId: r._id,
@@ -1047,17 +1047,17 @@ const getRequestTracking = async (req, res) => {
       const canShare = donorResponse.donorShareLocation === true && !isRequestClosed && !myDonorExp.isExpired;
       const respId = donorResponse.responderId?._id || donorResponse.responderId;
       const isCoord = (request.activeDonorId?._id || request.activeDonorId)?.toString() === req.user.id.toString();
-      const donorAddress = (donorResponse.currentLocation?.address ||
-        req.user.location?.address ||
+      const donorProfileAddress = (req.user.location?.address ||
         req.user.address ||
         [req.user.city, req.user.state].filter(Boolean).join(', ') ||
         '').trim();
+      const donorAddress = donorProfileAddress || (donorResponse.currentLocation?.address || '').trim();
       const donorLat = donorResponse.currentLocation?.lat ?? req.user.location?.lat ?? null;
       const donorLng = donorResponse.currentLocation?.lng ?? req.user.location?.lng ?? null;
       const hasValidDonorCoords = donorLat !== null && donorLng !== null && !isNaN(donorLat) && !isNaN(donorLng) && (donorLat !== 0 || donorLng !== 0);
-      const directionsUrl = hasValidDonorCoords
-        ? `https://www.google.com/maps/dir/?api=1&destination=${donorLat},${donorLng}`
-        : (donorAddress ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(cleanAddressForMaps(donorAddress))}` : null);
+      const directionsUrl = donorAddress
+        ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(cleanAddressForMaps(donorAddress))}`
+        : (hasValidDonorCoords ? `https://www.google.com/maps/dir/?api=1&destination=${donorLat},${donorLng}` : null);
 
       donorInfo = {
         responderId: respId,
@@ -1166,7 +1166,13 @@ const updateLocation = async (req, res) => {
       } catch (err) {}
     }
 
-    // If coordinates are provided without address, reverse-geocode to get the readable address
+    // If address is not provided in body, prioritize the user's verified registered profile address
+    const userProfileAddress = (req.user?.location?.address || req.user?.address || '').trim();
+    if (!addressStr && userProfileAddress) {
+      addressStr = userProfileAddress;
+    }
+
+    // Only if coordinates are provided without any known profile address, reverse-geocode to get the readable address
     if (!addressStr && latNum !== null && lngNum !== null && !isNaN(latNum) && !isNaN(lngNum)) {
       try {
         const rev = await reverseGeocode(latNum, lngNum);
@@ -1272,7 +1278,7 @@ const updateLocation = async (req, res) => {
         return res.status(400).json({ message: 'Location sharing is disabled or turned off for your donor account' });
       }
 
-      const finalAddress = addressStr || donorResp.currentLocation?.address || '';
+      const finalAddress = (req.user?.location?.address || req.user?.address || donorResp.currentLocation?.address || addressStr || '').trim();
       donorResp.currentLocation = {
         address: finalAddress,
         lat: hasValidCoords ? latNum : (donorResp.currentLocation?.lat || null),

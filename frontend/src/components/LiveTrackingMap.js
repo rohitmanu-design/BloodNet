@@ -259,7 +259,7 @@ const LiveTrackingMap = ({
       }
 
       const hasReqCoords = !isNaN(reqLat) && !isNaN(reqLng) && (reqLat !== 0 || reqLng !== 0);
-      const reqDirectionsUrl = buildDirectionsUrl(
+      const reqDirectionsUrl = requesterLocation?.directionsUrl || buildDirectionsUrl(
         hasReqCoords ? reqLat : null,
         hasReqCoords ? reqLng : null,
         reqAddr
@@ -304,11 +304,11 @@ const LiveTrackingMap = ({
     }
 
     const hasHospCoords = !isNaN(hospLat) && !isNaN(hospLng) && (hospLat !== 0 || hospLng !== 0);
-    const hospDirectionsUrl = buildDirectionsUrl(
+    const hospDirectionsUrl = hospitalInfo?.directionsUrl || buildDirectionsUrl(
       hasHospCoords ? hospLat : null,
       hasHospCoords ? hospLng : null,
       hospAddr
-    ) || (hospitalInfo?.directionsUrl && !hospitalInfo.directionsUrl.includes('BSNL') ? hospitalInfo.directionsUrl : null);
+    );
 
     if (hasHospCoords) {
       pts.push({
@@ -341,7 +341,7 @@ const LiveTrackingMap = ({
     if (donorAllowed && (donorInfo?.currentLocation?.lat || donorInfo?.currentLocation?.address || donorInfo?.address || donorInfo?.lat)) {
       let donorLat = parseFloat(donorInfo?.currentLocation?.lat || donorInfo?.lat);
       let donorLng = parseFloat(donorInfo?.currentLocation?.lng || donorInfo?.lng);
-      const donorAddr = (donorInfo?.currentLocation?.address || donorInfo?.address || '').trim();
+      const donorAddr = (donorInfo?.address || donorInfo?.currentLocation?.address || '').trim();
 
       if ((isNaN(donorLat) || isNaN(donorLng) || (donorLat === 0 && donorLng === 0)) && donorAddr && resolvedCoords[donorAddr]) {
         donorLat = resolvedCoords[donorAddr].lat;
@@ -349,7 +349,7 @@ const LiveTrackingMap = ({
       }
 
       const hasDonorCoords = !isNaN(donorLat) && !isNaN(donorLng) && (donorLat !== 0 || donorLng !== 0);
-      const donorDirectionsUrl = buildDirectionsUrl(
+      const donorDirectionsUrl = donorInfo?.directionsUrl || buildDirectionsUrl(
         hasDonorCoords ? donorLat : null,
         hasDonorCoords ? donorLng : null,
         donorAddr
