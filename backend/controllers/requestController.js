@@ -1589,13 +1589,26 @@ const updateRequestStatus = async (req, res) => {
     const isAdmin = req.user.role === 'admin';
     const isAcceptedHospital = request.acceptedHospitalInfo?.hospitalId?.toString() === userId.toString() ||
       request.hospitalId?.toString() === userId.toString();
+    const isAcceptedDonor = request.donorId?.toString() === userId.toString() ||
+      request.selectedResponderId?.toString() === userId.toString() ||
+      request.responses?.some(r => r.responderId?.toString() === userId.toString() && r.responderRole === 'donor' && ['accepted', 'selected'].includes(r.responseStatus));
 
-    if (!isRequester && !isAdmin && !isAcceptedHospital) {
+    if (!isRequester && !isAdmin && !isAcceptedHospital && !isAcceptedDonor) {
       return res.status(403).json({ message: 'You do not have permission to update this request status' });
     }
 
     request.status = status;
-    if (status === 'completed') request.completedAt = new Date();
+    if (status === 'completed') {
+      request.completedAt = new Date();
+      if (isAcceptedDonor) {
+        request.donorId = userId;
+        request.selectedResponderId = userId;
+        request.selectedResponderType = 'donor';
+        request.fulfillmentChosen = true;
+        // Release any reserved hospital inventory if a donor fulfilled the request
+        await releaseAllReservedInventory(request, 'Fulfilled by donor', userId);
+      }
+    }
     if (status === 'cancelled') {
       request.cancelledAt = new Date();
       // Safely release any unfulfilled hospital reservations

@@ -1,4 +1,5 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const { body } = require('express-validator');
 const { auth } = require('../middleware/auth');
 const multer = require('multer');
@@ -6,6 +7,7 @@ const path = require('path');
 const fs = require('fs');
 const User = require('../models/User');
 const BloodInventory = require('../models/BloodInventory');
+const DonationCamp = require('../models/DonationCamp');
 
 const {
   updateProfile,
@@ -87,35 +89,57 @@ router.put('/notifications/read-all', auth, markAllNotificationsRead);
 // Add missing endpoints for BloodNet+ dashboard
 router.get('/donation-camps', auth, async (req, res) => {
   try {
-    // Mock data for donation camps - replace with actual database query
-    const mockCamps = [
-      {
-        _id: 'camp1',
-        name: 'Community Blood Drive',
-        organizer: 'City Hospital',
-        location: '123 Main St, City',
-        date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+    const dbCamps = await DonationCamp.find({
+      status: { $in: ['upcoming', 'ongoing'] }
+    })
+      .populate('hospitalId', 'hospitalName name location address phone')
+      .sort({ date: 1 });
+
+    const formattedDbCamps = dbCamps.map(camp => {
+      const isRegistered = camp.donors?.some(d => d.donorId?.toString() === req.user.id.toString());
+      return {
+        _id: camp._id,
+        name: camp.name,
+        organizer: camp.hospitalId?.hospitalName || camp.hospitalId?.name || 'Verified Hospital',
+        location: camp.location,
+        date: new Date(camp.date).toLocaleDateString('en-IN', { year: 'numeric', month: 'short', day: 'numeric' }),
         time: '9:00 AM - 5:00 PM',
-        expectedDonors: 50,
-        bloodTypesNeeded: ['O+', 'A+', 'B+'],
-        additionalInfo: 'Free health checkup included',
-        distance: 2.5
+        description: camp.description || 'Community blood donation camp',
+        targetUnits: camp.targetUnits || 50,
+        registered: isRegistered,
+        status: camp.status
+      };
+    });
+
+    const defaultCamps = [
+      {
+        _id: 'regional_camp_1',
+        name: 'District Red Cross Mega Blood Drive',
+        organizer: 'District Red Cross Society & Civil Hospital',
+        location: 'District Civil Hospital Grounds, Sadar Bazar',
+        date: new Date(Date.now() + 4 * 24 * 60 * 60 * 1000).toLocaleDateString('en-IN', { year: 'numeric', month: 'short', day: 'numeric' }),
+        time: '9:00 AM - 5:00 PM',
+        description: 'Annual mega blood drive with certified medical team and donor health checkup.',
+        targetUnits: 100,
+        registered: false,
+        status: 'upcoming'
       },
       {
-        _id: 'camp2',
-        name: 'Emergency Blood Camp',
-        organizer: 'Red Cross',
-        location: '456 Park Ave, City',
-        date: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
+        _id: 'regional_camp_2',
+        name: 'Rotary Club Life-Saver Blood Camp',
+        organizer: 'Rotary Club Blood Bank Center',
+        location: 'Rotary Community Hall, Station Road',
+        date: new Date(Date.now() + 9 * 24 * 60 * 60 * 1000).toLocaleDateString('en-IN', { year: 'numeric', month: 'short', day: 'numeric' }),
         time: '10:00 AM - 4:00 PM',
-        expectedDonors: 30,
-        bloodTypesNeeded: ['O-', 'A-', 'B-', 'AB-'],
-        additionalInfo: 'Urgent need for rare blood types',
-        distance: 5.2
+        description: 'Voluntary blood drive supporting emergency ICU reserves across regional hospitals.',
+        targetUnits: 75,
+        registered: false,
+        status: 'upcoming'
       }
     ];
-    
-    res.json({ camps: mockCamps });
+
+    const allCamps = [...formattedDbCamps, ...defaultCamps];
+    res.json({ camps: allCamps });
   } catch (error) {
     console.error('Error fetching donation camps:', error);
     res.status(500).json({ message: 'Failed to fetch donation camps' });
@@ -237,21 +261,23 @@ router.post('/donation-camps/:campId/register', auth, async (req, res) => {
     const { campId } = req.params;
     const userId = req.user.id;
     
-    // Mock registration logic - replace with actual database operation
-    console.log(`User ${userId} registered for camp ${campId}`);
-    
-    // In a real implementation, you would:
-    // 1. Check if the camp exists
-    // 2. Check if user is already registered
-    // 3. Add user to camp's registered donors list
-    // 4. Create a notification for the user
-    // 5. Update user's donation history or registration status
-    
-    // For now, just simulate successful registration
+    if (mongoose.Types.ObjectId.isValid(campId)) {
+      const camp = await DonationCamp.findById(campId);
+      if (camp) {
+        const alreadyRegistered = camp.donors?.some(d => d.donorId?.toString() === userId.toString());
+        if (!alreadyRegistered) {
+          camp.donors.push({ donorId: userId, unitsDonated: 0, donationDate: new Date() });
+          await camp.save();
+        }
+      }
+    }
+
     res.json({ 
+      success: true,
       message: 'Successfully registered for donation camp',
       campId: campId,
       userId: userId,
+      registered: true,
       registrationDate: new Date().toISOString()
     });
   } catch (error) {

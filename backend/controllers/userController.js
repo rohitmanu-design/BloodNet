@@ -180,13 +180,31 @@ const getDonationHistory = async (req, res) => {
     }
 
     const donations = await Request.find({
-      donorId: req.user.id,
+      $or: [
+        { donorId: req.user.id },
+        { selectedResponderId: req.user.id },
+        { 'responses.responderId': req.user.id, 'responses.responderRole': 'donor' }
+      ],
       status: 'completed'
     })
     .populate('requesterId', 'name location')
-    .sort({ completedAt: -1 });
+    .sort({ completedAt: -1, createdAt: -1 });
 
-    res.json({ donations });
+    const formattedDonations = donations.map(d => {
+      const obj = d.toObject ? d.toObject() : { ...d };
+      return {
+        _id: obj._id,
+        date: obj.completedAt || obj.updatedAt || obj.createdAt,
+        completedAt: obj.completedAt || obj.updatedAt || obj.createdAt,
+        location: obj.location?.address || 'Medical Facility',
+        bloodGroup: obj.bloodGroup,
+        unitsNeeded: obj.unitsNeeded,
+        status: obj.status,
+        requesterId: obj.requesterId
+      };
+    });
+
+    res.json({ donations: formattedDonations });
   } catch (error) {
     console.error('Get donation history error:', error);
     res.status(500).json({ message: 'Server error fetching donation history' });
