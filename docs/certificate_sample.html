@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Certificate of Appreciation - john doe</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&family=Playfair+Display:ital,wght@0,600;0,800;1,400&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+
+    @page {
+      size: A4 landscape;
+      margin: 0;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background: #f8fafc;
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      color: #1e293b;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      padding: 24px;
+    }
+
+    .cert-frame {
+      width: 1000px;
+      background: #ffffff;
+      border: 12px double #991b1b;
+      padding: 38px 48px;
+      position: relative;
+      box-shadow: 0 15px 35px rgba(0,0,0,0.12);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .cert-frame::before {
+      content: '';
+      position: absolute;
+      inset: 8px;
+      border: 2px solid #d97706;
+      pointer-events: none;
+    }
+
+    .cert-corner {
+      position: absolute;
+      width: 32px;
+      height: 32px;
+      border-color: #991b1b;
+      border-style: solid;
+      pointer-events: none;
+    }
+    .top-left { top: 14px; left: 14px; border-width: 4px 0 0 4px; }
+    .top-right { top: 14px; right: 14px; border-width: 4px 4px 0 0; }
+    .bottom-left { bottom: 14px; left: 14px; border-width: 0 0 4px 4px; }
+    .bottom-right { bottom: 14px; right: 14px; border-width: 0 4px 4px 0; }
+
+    .cert-header {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+
+    .cert-badge {
+      display: inline-block;
+      padding: 4px 16px;
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      border-radius: 9999px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: #b91c1c;
+      margin-bottom: 10px;
+    }
+
+    .cert-title {
+      font-family: 'Cinzel', serif;
+      font-size: 38px;
+      font-weight: 900;
+      color: #881337;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      line-height: 1.1;
+      margin-bottom: 6px;
+    }
+
+    .cert-subtitle {
+      font-size: 14px;
+      color: #64748b;
+      letter-spacing: 4px;
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+
+    .cert-body {
+      text-align: center;
+      margin: 24px 0;
+    }
+
+    .presented-text {
+      font-size: 15px;
+      color: #64748b;
+      font-style: italic;
+      margin-bottom: 8px;
+    }
+
+    .donor-name {
+      font-family: 'Playfair Display', serif;
+      font-size: 40px;
+      font-weight: 800;
+      color: #1e1b4b;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      display: inline-block;
+      border-bottom: 3px solid #d97706;
+      padding: 0 24px 8px 24px;
+      margin-bottom: 12px;
+    }
+
+    .appreciation-para {
+      max-width: 760px;
+      margin: 0 auto 24px;
+      font-size: 14px;
+      line-height: 1.6;
+      color: #334155;
+    }
+
+    .cert-stats-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      max-width: 860px;
+      margin: 0 auto 24px;
+    }
+
+    .stat-box {
+      background: #fff1f2;
+      border: 1px solid #fecdd3;
+      padding: 10px 14px;
+      border-radius: 8px;
+      text-align: center;
+    }
+
+    .stat-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      font-weight: 700;
+      color: #9f1239;
+      letter-spacing: 1px;
+    }
+
+    .stat-value {
+      font-size: 15px;
+      font-weight: 800;
+      color: #1e293b;
+      margin-top: 2px;
+    }
+
+    .cert-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      margin-top: 32px;
+      padding-top: 16px;
+      border-top: 1px dashed #cbd5e1;
+    }
+
+    .footer-col {
+      flex: 1;
+      text-align: center;
+    }
+
+    .signature-line {
+      width: 180px;
+      border-bottom: 2px solid #475569;
+      margin: 0 auto 6px auto;
+    }
+
+    .sign-name {
+      font-size: 12px;
+      font-weight: 700;
+      color: #1e293b;
+    }
+
+    .sign-title {
+      font-size: 10px;
+      color: #64748b;
+      text-transform: uppercase;
+    }
+
+    .seal-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .seal-circle {
+      width: 74px;
+      height: 74px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #b91c1c, #881337);
+      border: 3px solid #fbbf24;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      text-align: center;
+      box-shadow: 0 4px 12px rgba(185, 28, 28, 0.35);
+    }
+
+    .seal-text-top {
+      font-size: 8px;
+      font-weight: 800;
+      letter-spacing: 1px;
+      color: #fef08a;
+    }
+
+    .seal-text-main {
+      font-size: 10px;
+      font-weight: 900;
+      letter-spacing: 1px;
+    }
+
+    .qr-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+    }
+
+    .qr-img {
+      width: 64px;
+      height: 64px;
+      margin-bottom: 4px;
+      border: 1px solid #e2e8f0;
+      padding: 2px;
+      border-radius: 4px;
+    }
+
+    .cert-meta {
+      font-size: 9px;
+      color: #64748b;
+      line-height: 1.4;
+    }
+  </style>
+</head>
+<body>
+  <div class="cert-frame">
+    <div class="cert-corner top-left"></div>
+    <div class="cert-corner top-right"></div>
+    <div class="cert-corner bottom-left"></div>
+    <div class="cert-corner bottom-right"></div>
+
+    <div class="cert-header">
+      <span class="cert-badge">Official BloodNet+ Award</span>
+      <h1 class="cert-title">Certificate of Appreciation</h1>
+      <p class="cert-subtitle">Recognizing Voluntary Life-Saving Blood Donation</p>
+    </div>
+
+    <div class="cert-body">
+      <p class="presented-text">This certificate is proudly awarded to</p>
+      <div class="donor-name">john doe</div>
+      <p class="appreciation-para">
+        Thank you for your selfless and voluntary blood donation. Because of your kindness, patients in critical need are given a second chance at life.
+      </p>
+
+      <div class="cert-stats-grid">
+        <div class="stat-box">
+          <div class="stat-label">Blood Group</div>
+          <div class="stat-value">AB+</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Units Donated</div>
+          <div class="stat-value">1 Unit(s)</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Estimated Lives Saved</div>
+          <div class="stat-value">3 Lives</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Donation Date</div>
+          <div class="stat-value">November 19, 2026</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="cert-footer">
+      <div class="footer-col">
+        <div class="signature-line"></div>
+        <div class="sign-name">BloodNet Admin</div>
+        <div class="sign-title">Medical Director • BloodNet+</div>
+      </div>
+
+      <div class="footer-col seal-wrap">
+        <div class="seal-circle">
+          <span class="seal-text-top">OFFICIAL</span>
+          <span class="seal-text-main">VERIFIED</span>
+          <span class="seal-text-top">BLOODNET</span>
+        </div>
+      </div>
+
+      <div class="footer-col qr-container">
+        <img src="data:image/png;base64,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" class="qr-img" alt="Certificate QR" />
+        <div class="cert-meta">
+          <strong>No:</strong> BLOOD-2026-883920<br />
+          <strong>Issued:</strong> November 19, 2026
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

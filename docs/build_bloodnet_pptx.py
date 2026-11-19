@@ -8,14 +8,13 @@ from pptx.enum.shapes import MSO_SHAPE
 def build_presentation():
     base_dir = r"c:\BloodNet\BloodNet"
     ref_pptx = r"C:\Users\suraj\.gemini\antigravity\brain\11c5381b-abe0-4590-adb5-713b7965389b\.user_uploaded\media_1795087871357_a03cd400.pptx"
-    user_uploads = r"C:\Users\suraj\.gemini\antigravity\brain\11c5381b-abe0-4590-adb5-713b7965389b\.user_uploaded"
+    enhanced_dir = os.path.join(base_dir, "docs", "report_assets", "enhanced")
     report_assets = os.path.join(base_dir, "docs", "report_assets")
     output_pptx = os.path.join(base_dir, "docs", "BLOODNET_PROJECT_PRESENTATION.pptx")
     root_output_pptx = os.path.join(base_dir, "BLOODNET_PROJECT_PRESENTATION.pptx")
 
     prs = Presentation(ref_pptx)
 
-    # Theme colors
     PRIMARY_RED = RGBColor(220, 38, 38)     # #DC2626
     DARK_RED = RGBColor(185, 28, 28)        # #B91C1C
     TEXT_DARK = RGBColor(17, 24, 39)        # #111827
@@ -58,7 +57,6 @@ def build_presentation():
         p.font.color.rgb = col
         p.space_after = Pt(2)
 
-    # Insert College Logo on Slide 1 over the placeholder
     logo_path = os.path.join(report_assets, "sawkar_logo_hd.png")
     if os.path.exists(logo_path):
         s1.shapes.add_picture(logo_path, Inches(10.2), Inches(5.2), width=Inches(2.4))
@@ -122,7 +120,9 @@ def build_presentation():
         p.space_after = Pt(6)
 
     # Add real-world navigation failure screenshot on right side
-    maps_fail_img = os.path.join(user_uploads, "media_1795078290845_4afc2715.png")
+    maps_fail_img = os.path.join(base_dir, "..", ".user_uploaded", "media_1795078290845_4afc2715.png")
+    if not os.path.exists(maps_fail_img):
+        maps_fail_img = r"C:\Users\suraj\.gemini\antigravity\brain\11c5381b-abe0-4590-adb5-713b7965389b\.user_uploaded\media_1795078290845_4afc2715.png"
     if os.path.exists(maps_fail_img):
         s3.shapes.add_picture(maps_fail_img, Inches(8.3), Inches(1.3), width=Inches(4.4))
 
@@ -310,13 +310,13 @@ def build_presentation():
         p.space_after = Pt(8)
 
     # =========================================================================
-    # SLIDE 9: Results & Performance
+    # SLIDE 9: Results & Performance Benchmarks (Using Enhanced Image 2)
     # =========================================================================
     s9 = prs.slides[8]
     s9.shapes[4].text_frame.clear()
-    screenshot_path = os.path.join(user_uploads, "media_1795073642008_f04d4bd3.png")
-    if os.path.exists(screenshot_path):
-        s9.shapes.add_picture(screenshot_path, Inches(0.8), Inches(1.5), width=Inches(6.6))
+    img2_enhanced = os.path.join(enhanced_dir, "enhanced_2_donor_feed.png")
+    if os.path.exists(img2_enhanced):
+        s9.shapes.add_picture(img2_enhanced, Inches(0.8), Inches(1.5), width=Inches(6.6))
 
     metrics = [
         (6, "Matching Accuracy", 7, "99.4%"),
@@ -474,51 +474,122 @@ def build_presentation():
     p.font.color.rgb = DARK_RED
 
     # =========================================================================
-    # ADD SHOWCASE SLIDES: Platform Interfaces & Live Screenshots
+    # ADD 4 DEDICATED SHOWCASE SLIDES (Images 1 to 6)
     # =========================================================================
     blank_layout = prs.slide_layouts[6] if len(prs.slide_layouts) > 6 else prs.slide_layouts[0]
 
-    # Showcase Slide 1: Live Platform Interfaces & Dashboards
-    showcase_slide_1 = prs.slides.add_slide(blank_layout)
+    # Helper function to create top banner & title
+    def init_showcase_slide(title_text):
+        slide = prs.slides.add_slide(blank_layout)
+        top_bar = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), Inches(13.333), Inches(0.12))
+        top_bar.fill.solid()
+        top_bar.fill.fore_color.rgb = PRIMARY_RED
+        top_bar.line.fill.background()
 
-    top_bar = showcase_slide_1.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), Inches(13.333), Inches(0.12))
-    top_bar.fill.solid()
-    top_bar.fill.fore_color.rgb = PRIMARY_RED
-    top_bar.line.fill.background()
+        tx_box = slide.shapes.add_textbox(Inches(0.6), Inches(0.35), Inches(12.2), Inches(0.6))
+        tf = tx_box.text_frame
+        p = tf.paragraphs[0]
+        p.text = title_text
+        p.font.name = "Segoe UI"
+        p.font.size = Pt(22)
+        p.font.bold = True
+        p.font.color.rgb = PRIMARY_RED
 
-    tx_box = showcase_slide_1.shapes.add_textbox(Inches(0.6), Inches(0.35), Inches(12), Inches(0.6))
-    tf = tx_box.text_frame
-    p = tf.paragraphs[0]
-    p.text = "Platform Showcase: Live Recipient Hub & Real-Time Donor Coordination"
-    p.font.name = "Segoe UI"
-    p.font.size = Pt(22)
-    p.font.bold = True
-    p.font.color.rgb = PRIMARY_RED
+        # Bottom-right slide number box matching template TextBox 3
+        num_box = slide.shapes.add_textbox(Inches(12.35), Inches(7.05), Inches(0.5), Inches(0.3))
+        num_box.name = 'TextBox 3'
+        return slide
 
-    img1 = os.path.join(user_uploads, "media_1795071010658_79de263e.png")
+    # -------------------------------------------------------------------------
+    # SHOWCASE SLIDE 1 (Images 1 & 2): Emergency Request Initiation & Donor Feed
+    # -------------------------------------------------------------------------
+    sc1 = init_showcase_slide("Platform Showcase: Emergency Request Creation & Proximity Donor Feed")
+    
+    img1 = os.path.join(enhanced_dir, "enhanced_1_request_modal.png")
     if os.path.exists(img1):
-        showcase_slide_1.shapes.add_picture(img1, Inches(0.6), Inches(1.2), width=Inches(7.2))
+        sc1.shapes.add_picture(img1, Inches(0.6), Inches(1.2), width=Inches(6.0))
 
-    img2 = os.path.join(user_uploads, "media_1795077372281_a39d9298.png")
+    img2 = os.path.join(enhanced_dir, "enhanced_2_donor_feed.png")
     if os.path.exists(img2):
-        showcase_slide_1.shapes.add_picture(img2, Inches(8.2), Inches(1.2), width=Inches(4.5))
+        sc1.shapes.add_picture(img2, Inches(6.9), Inches(1.2), width=Inches(5.9))
 
-    img3 = os.path.join(user_uploads, "media_1795084895857_f5195637.jpg")
-    if os.path.exists(img3):
-        showcase_slide_1.shapes.add_picture(img3, Inches(0.6), Inches(3.6), width=Inches(7.2))
-
-    cap_box = showcase_slide_1.shapes.add_textbox(Inches(8.2), Inches(3.6), Inches(4.5), Inches(3.2))
-    cap_tf = cap_box.text_frame
-    cap_tf.clear()
-    captions = [
-        ("Key Interface Capabilities:", True, Pt(14), TEXT_DARK),
-        ("• One-Click Emergency Requests with urgency level (Critical, Urgent, Normal).", False, Pt(12), TEXT_MUTED),
-        ("• Real-Time Responding Donor Feed with live active status and contact display.", False, Pt(12), TEXT_MUTED),
-        ("• Address-Based Direction Integration to prevent unnavigable alleyway coordinates.", False, Pt(12), TEXT_MUTED),
-        ("• Live Connected Telemetry with instant manual data refresh button on all dashboards.", False, Pt(12), TEXT_MUTED)
+    # Caption box at bottom
+    cap_box1 = sc1.shapes.add_textbox(Inches(0.6), Inches(4.7), Inches(12.2), Inches(2.2))
+    cap_tf1 = cap_box1.text_frame
+    cap_tf1.clear()
+    pts1 = [
+        ("Image 1: Emergency Blood Request Creation Modal (Recipient Portal)", True, Pt(13), PRIMARY_RED),
+        ("• Features intuitive Blood Group selector (O+), Urgency Level classification (Normal 24-48h, Urgent, Critical), and Unit count.", False, Pt(11), TEXT_MUTED),
+        ("• Includes GPS auto-detection with street-address fallback ('gangapuri wai') and granular Privacy & Security authorizations.", False, Pt(11), TEXT_MUTED),
+        ("Image 2: Live Emergency Request Queue & Distance Calculation (Donor Portal)", True, Pt(13), PRIMARY_RED),
+        ("• Automatically calculates and displays real-time distance using Haversine algorithm (e.g. ~1.1 km away, ~0 km away).", False, Pt(11), TEXT_MUTED),
+        ("• Provides one-click 'Accept & Donate', 'View Map', and 'Refer/Share' buttons with immediate WebSocket dispatch.", False, Pt(11), TEXT_MUTED)
     ]
-    for idx, (txt, bold, sz, col) in enumerate(captions):
-        p = cap_tf.add_paragraph() if idx > 0 else cap_tf.paragraphs[0]
+    for idx, (txt, bold, sz, col) in enumerate(pts1):
+        p = cap_tf1.add_paragraph() if idx > 0 else cap_tf1.paragraphs[0]
+        p.text = txt
+        p.font.name = "Segoe UI"
+        p.font.size = sz
+        p.font.bold = bold
+        p.font.color.rgb = col
+        p.space_after = Pt(2)
+
+    # -------------------------------------------------------------------------
+    # SHOWCASE SLIDE 2 (Images 3A & 3B): Live Coordination & Turn-by-Turn Navigation
+    # -------------------------------------------------------------------------
+    sc2 = init_showcase_slide("Platform Showcase: Live Coordination & Turn-by-Turn Navigation")
+
+    img3a = os.path.join(enhanced_dir, "enhanced_3a_responding_donors.png")
+    if os.path.exists(img3a):
+        sc2.shapes.add_picture(img3a, Inches(0.6), Inches(1.2), width=Inches(5.9))
+
+    img3b = os.path.join(enhanced_dir, "enhanced_3b_google_maps.png")
+    if os.path.exists(img3b):
+        sc2.shapes.add_picture(img3b, Inches(6.8), Inches(1.2), width=Inches(6.0))
+
+    cap_box2 = sc2.shapes.add_textbox(Inches(0.6), Inches(5.1), Inches(12.2), Inches(1.9))
+    cap_tf2 = cap_box2.text_frame
+    cap_tf2.clear()
+    pts2 = [
+        ("Images 3A & 3B: Verified Donor Coordination & Turn-by-Turn Route Navigation", True, Pt(13), PRIMARY_RED),
+        ("• Real-Time Dispatch Telemetry: Shows verified recipient location, accepted hospital (Ghotavadekar Multispeciality), and responding donor (john doe AB+).", False, Pt(11), TEXT_MUTED),
+        ("• Address-First Google Maps Integration: Eliminates alleyway coordinate dead-ends by generating direct route links to verified street addresses.", False, Pt(11), TEXT_MUTED),
+        ("• Mutual Security & 24h Lifecycle: Enforces strict 24-hour location sharing expiry and automatic cessation upon request fulfillment.", False, Pt(11), TEXT_MUTED)
+    ]
+    for idx, (txt, bold, sz, col) in enumerate(pts2):
+        p = cap_tf2.add_paragraph() if idx > 0 else cap_tf2.paragraphs[0]
+        p.text = txt
+        p.font.name = "Segoe UI"
+        p.font.size = sz
+        p.font.bold = bold
+        p.font.color.rgb = col
+        p.space_after = Pt(3)
+
+    # -------------------------------------------------------------------------
+    # SHOWCASE SLIDE 3 (Image 4): Hospital Blood Bank Inventory & Critical Alerts
+    # -------------------------------------------------------------------------
+    sc3 = init_showcase_slide("Platform Showcase: Hospital Blood Bank Inventory & Depletion Alerts")
+
+    img4 = os.path.join(enhanced_dir, "enhanced_4_hospital_inventory.png")
+    if os.path.exists(img4):
+        sc3.shapes.add_picture(img4, Inches(0.6), Inches(1.2), width=Inches(6.8))
+
+    side_box3 = sc3.shapes.add_textbox(Inches(7.7), Inches(1.2), Inches(5.1), Inches(5.8))
+    side_tf3 = side_box3.text_frame
+    side_tf3.clear()
+    pts3 = [
+        ("Image 4: Hospital Blood Bank Management Hub", True, Pt(15), TEXT_DARK),
+        ("• Critical Stock Warning Banner:", True, Pt(13), DARK_RED),
+        ("  Automated threshold alerts highlight blood groups falling below safe minimum levels (e.g. B- at 4 units, AB- at 5 units).", False, Pt(11), TEXT_MUTED),
+        ("• 8 Standard Blood Groups Matrix:", True, Pt(13), DARK_RED),
+        ("  Real-time stock indicators across A+, A-, B+, B-, AB+, AB-, O+, and O- with safe stock ratio (6/8 safe, 2/8 attention needed).", False, Pt(11), TEXT_MUTED),
+        ("• Atomic Stock Increment/Decrement (+Update):", True, Pt(13), DARK_RED),
+        ("  Hospital staff adjust physical stock counts with atomic database transactions preventing double-booking.", False, Pt(11), TEXT_MUTED),
+        ("• Direct Integration with Patient Requests:", True, Pt(13), DARK_RED),
+        ("  Incoming emergency blood needs trigger automatic reservation against matching hospital inventory.", False, Pt(11), TEXT_MUTED)
+    ]
+    for idx, (txt, bold, sz, col) in enumerate(pts3):
+        p = side_tf3.add_paragraph() if idx > 0 else side_tf3.paragraphs[0]
         p.text = txt
         p.font.name = "Segoe UI"
         p.font.size = sz
@@ -526,55 +597,63 @@ def build_presentation():
         p.font.color.rgb = col
         p.space_after = Pt(4)
 
-    # Showcase Slide 2: Request Fulfillment & Verified Digital Certification
-    showcase_slide_2 = prs.slides.add_slide(blank_layout)
+    # -------------------------------------------------------------------------
+    # SHOWCASE SLIDE 4 (Images 5 & 6): Tamper-Proof Certification & Donor Profile
+    # -------------------------------------------------------------------------
+    sc4 = init_showcase_slide("Platform Showcase: Tamper-Proof Certification & Donor Profile")
 
-    top_bar2 = showcase_slide_2.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), Inches(13.333), Inches(0.12))
-    top_bar2.fill.solid()
-    top_bar2.fill.fore_color.rgb = PRIMARY_RED
-    top_bar2.line.fill.background()
-
-    tx_box2 = showcase_slide_2.shapes.add_textbox(Inches(0.6), Inches(0.35), Inches(12), Inches(0.6))
-    tf2 = tx_box2.text_frame
-    p2 = tf2.paragraphs[0]
-    p2.text = "Platform Showcase: Request Fulfillment & Verified Digital Certification"
-    p2.font.name = "Segoe UI"
-    p2.font.size = Pt(22)
-    p2.font.bold = True
-    p2.font.color.rgb = PRIMARY_RED
-
-    img4 = os.path.join(user_uploads, "media_1795081481862_d340a514.png")
-    if os.path.exists(img4):
-        showcase_slide_2.shapes.add_picture(img4, Inches(0.6), Inches(1.3), width=Inches(7.2))
-
-    img5 = os.path.join(user_uploads, "media_1795069969359_565a3a47.png")
+    img5 = os.path.join(enhanced_dir, "enhanced_5_certificate.png")
     if os.path.exists(img5):
-        showcase_slide_2.shapes.add_picture(img5, Inches(0.6), Inches(2.9), width=Inches(7.2))
+        sc4.shapes.add_picture(img5, Inches(0.6), Inches(1.15), width=Inches(5.7))
 
-    cert_box = showcase_slide_2.shapes.add_textbox(Inches(8.2), Inches(1.3), Inches(4.5), Inches(5.5))
-    cert_tf = cert_box.text_frame
-    cert_tf.clear()
-    cert_items = [
-        ("Closed-Loop Fulfillment Workflow:", True, Pt(14), TEXT_DARK),
-        ("1. Real-Time Status Transition: Request dynamically switches from 'Pending' to 'In-Transit' to 'Completed' upon verified donation.", False, Pt(12), TEXT_MUTED),
-        ("2. Hospital Inventory Auto-Update: Hospital blood banks immediately record incoming units into inventory counters.", False, Pt(12), TEXT_MUTED),
-        ("3. Digital Certificate Issuance: Generates official B.Tech-verified certificates with donor name, blood units, and hospital stamp.", False, Pt(12), TEXT_MUTED),
-        ("4. Dynamic QR Code Verification: Each certificate features a unique SHA-256 hash verifying donation authenticity on mobile scan.", False, Pt(12), TEXT_MUTED),
-        ("5. One-Click Print & PDF Export: High-resolution print styling formatted for framed certificates and portfolio downloads.", False, Pt(12), TEXT_MUTED)
+    img6 = os.path.join(enhanced_dir, "enhanced_6_user_profile.png")
+    if os.path.exists(img6):
+        sc4.shapes.add_picture(img6, Inches(6.8), Inches(1.15), width=Inches(5.8))
+
+    cap_box4 = sc4.shapes.add_textbox(Inches(0.6), Inches(5.5), Inches(12.0), Inches(1.4))
+    cap_tf4 = cap_box4.text_frame
+    cap_tf4.clear()
+    pts4 = [
+        ("Images 5 & 6: Cryptographically Verified Certificate & Voluntary Donor Profile", True, Pt(13), PRIMARY_RED),
+        ("• Image 5: Official Certificate of Appreciation awarded to donors (john doe, AB+, 1 unit, Nov 19 2026) featuring dynamic SHA-256 scannable QR verification.", False, Pt(11), TEXT_MUTED),
+        ("• Image 6: Comprehensive Donor Profile with one-click avatar management, real-time availability toggle, verified health metrics (AB+, 57kg, 15.8 g/dL), and geocoded address.", False, Pt(11), TEXT_MUTED)
     ]
-    for idx, (txt, bold, sz, col) in enumerate(cert_items):
-        p = cert_tf.add_paragraph() if idx > 0 else cert_tf.paragraphs[0]
+    for idx, (txt, bold, sz, col) in enumerate(pts4):
+        p = cap_tf4.add_paragraph() if idx > 0 else cap_tf4.paragraphs[0]
         p.text = txt
         p.font.name = "Segoe UI"
         p.font.size = sz
         p.font.bold = bold
         p.font.color.rgb = col
-        p.space_after = Pt(6)
+        p.space_after = Pt(3)
 
-    # Save presentation
+    # =========================================================================
+    # RE-ORDER SLIDES: Showcase slides placed right after Results (Slide 9)
+    # =========================================================================
+    sldIdLst = prs.slides._sldIdLst
+    # sc1, sc2, sc3, sc4 were appended at the end: indices 12, 13, 14, 15
+    showcase_elems = [sldIdLst[12], sldIdLst[13], sldIdLst[14], sldIdLst[15]]
+    for offset, elem in enumerate(showcase_elems):
+        sldIdLst.remove(elem)
+        sldIdLst.insert(9 + offset, elem)
+
+    # Renumber slide badges (Shape 2 in template slides)
+    for idx, slide in enumerate(prs.slides, 1):
+        if idx == 1:
+            continue
+        for shp in slide.shapes:
+            if shp.name == 'TextBox 3' and shp.has_text_frame:
+                shp.text_frame.clear()
+                p = shp.text_frame.paragraphs[0]
+                p.text = str(idx)
+                p.font.name = "Segoe UI"
+                p.font.size = Pt(12)
+                p.font.color.rgb = TEXT_MUTED
+
+    # Save presentation to docs/ and project root
     prs.save(output_pptx)
     prs.save(root_output_pptx)
-    print("SUCCESS: Presentation successfully generated!")
+    print("SUCCESS: 16-Slide Master Presentation Generated!")
     print(f"  Docs: {output_pptx}")
     print(f"  Root: {root_output_pptx}")
 
