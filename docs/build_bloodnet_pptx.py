@@ -96,6 +96,16 @@ def build_presentation():
                 slide.shapes.add_picture(new_img_path, l, t, width=w)
 
     # =========================================================================
+    # FOOTER: Update Footer on Layouts & Slides
+    # =========================================================================
+    footer_text = "BloodNet+ | Arvind Gavali College of Engineering, Satara | B.Tech AI & DS | 2026–27"
+    for master in prs.slide_masters:
+        for layout in master.slide_layouts:
+            for shape in layout.shapes:
+                if shape.has_text_frame and "BIS Sahayak" in shape.text_frame.text:
+                    set_shape_text(shape, footer_text, font_size=Pt(10), color_rgb=RGBColor(0x5B, 0x6B, 0x7F))
+
+    # =========================================================================
     # SLIDE 1: Title Slide
     # =========================================================================
     s1 = prs.slides[0]
@@ -104,11 +114,11 @@ def build_presentation():
     set_shape_text(s1.shapes[3], "Real-Time Emergency Blood Donation & Management Platform")
     set_shape_text(s1.shapes[5], "Presented by")
     set_shape_text(s1.shapes[6], "Rohit Sharad Sanas (2165451242063)\nVighnesh N. Suryawanshi (2165451242050)")
-    set_shape_text(s1.shapes[7], "Rohit Ganesh Sanas (2165451242056)\nManish Rajesh Bodake (2165451242057)")
+    set_shape_text(s1.shapes[7], "Rohit Ganesh Sanas (2165451242056)\nManish R. Bodake (2165451242057)")
     set_shape_text(s1.shapes[8], "Project Guide")
-    set_shape_text(s1.shapes[9], "Dr. Samina Y. Mulla")
+    set_shape_text(s1.shapes[9], "Mr. Kaisar Atar")
     set_shape_text(s1.shapes[10], "Department")
-    set_shape_text(s1.shapes[11], "Department of Computer Science and Engineering")
+    set_shape_text(s1.shapes[11], "B.Tech Artificial Intelligence and Data Science")
     set_shape_text(s1.shapes[13], "Arvind Gavali College of Engineering, Satara   |   Academic Year 2026–27")
 
     # =========================================================================
