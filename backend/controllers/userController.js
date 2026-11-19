@@ -195,23 +195,34 @@ const getDonationHistory = async (req, res) => {
 
 const searchDonors = async (req, res) => {
   try {
-    const { bloodGroup, lat, lng, maxDistance = 50 } = req.query;
+    let { bloodGroup, lat, lng, maxDistance = 50 } = req.query;
 
     console.log('Search donors request:', { bloodGroup, lat, lng, maxDistance });
 
-    if (!bloodGroup || !lat || !lng) {
-      console.log('Missing required parameters');
-      return res.status(400).json({ message: 'Blood group and location coordinates are required' });
+    // Fall back to authenticated user's location if lat/lng not provided
+    if ((!lat || !lng) && req.user?.id) {
+      try {
+        const currentUser = await User.findById(req.user.id).select('location');
+        if (currentUser?.location?.lat && currentUser?.location?.lng) {
+          lat = currentUser.location.lat;
+          lng = currentUser.location.lng;
+        }
+      } catch (err) {
+        console.warn('Could not retrieve user location for search fallback:', err.message);
+      }
     }
 
-    // More flexible search - don't require health details for now
-    const donors = await User.find({
+    const query = {
       role: 'donor',
-      bloodGroup,
       isAvailable: true
-    }).select('-password');
+    };
 
-    console.log(`Found ${donors.length} donors with blood group ${bloodGroup}`);
+    if (bloodGroup && bloodGroup !== 'all' && bloodGroup !== '') {
+      query.bloodGroup = bloodGroup;
+    }
+
+    const donors = await User.find(query).select('-password');
+    console.log(`Found ${donors.length} donors matching query:`, query);
 
     const calculateDistance = (lat1, lon1, lat2, lon2) => {
       const R = 6371;
@@ -225,27 +236,32 @@ const searchDonors = async (req, res) => {
       return R * c;
     };
 
-    const nearbyDonors = donors.filter(donor => {
-      if (!donor.location || !donor.location.lat || !donor.location.lng) {
-        console.log('Donor missing location:', donor._id);
-        return false;
-      }
-      
-      const distance = calculateDistance(
-        parseFloat(lat), parseFloat(lng),
-        donor.location.lat, donor.location.lng
-      );
-      donor.distance = Math.round(distance * 10) / 10;
-      
-      console.log(`Donor ${donor._id} distance: ${distance}km`);
-      return distance <= maxDistance;
-    });
+    let resultDonors = donors.map(d => (d.toObject ? d.toObject() : { ...d }));
 
-    console.log(`Found ${nearbyDonors.length} nearby donors within ${maxDistance}km`);
+    const numLat = parseFloat(lat);
+    const numLng = parseFloat(lng);
+    const hasCoordinates = !isNaN(numLat) && !isNaN(numLng) && (numLat !== 0 || numLng !== 0);
 
-    nearbyDonors.sort((a, b) => a.distance - b.distance);
+    if (hasCoordinates) {
+      resultDonors = resultDonors.map(donor => {
+        if (donor.location && donor.location.lat && donor.location.lng) {
+          const distance = calculateDistance(numLat, numLng, donor.location.lat, donor.location.lng);
+          return { ...donor, distance: Math.round(distance * 10) / 10 };
+        }
+        return { ...donor, distance: null };
+      });
 
-    res.json({ donors: nearbyDonors });
+      const maxDistNum = parseFloat(maxDistance) || 50;
+      resultDonors = resultDonors.filter(donor => donor.distance === null || donor.distance <= maxDistNum);
+      resultDonors.sort((a, b) => {
+        if (a.distance === null) return 1;
+        if (b.distance === null) return -1;
+        return a.distance - b.distance;
+      });
+    }
+
+    console.log(`Returning ${resultDonors.length} donors to client`);
+    res.json({ donors: resultDonors });
   } catch (error) {
     console.error('Search donors error:', error);
     res.status(500).json({ message: 'Server error searching donors' });

@@ -90,6 +90,7 @@ export const userAPI = {
     }
   }),
   searchDonors: (params) => api.get('/users/search', { params }),
+  searchNearbyDonors: (params) => api.get('/users/search', { params }),
   getNotifications: (params) => api.get('/users/notifications', { params }),
   markNotificationRead: (notificationId) => api.put(`/users/notifications/${notificationId}/read`),
   markAllNotificationsRead: () => api.put('/users/notifications/read-all'),
