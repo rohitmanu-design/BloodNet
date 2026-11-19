@@ -4,6 +4,48 @@ from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN
 from pptx.enum.shapes import MSO_SHAPE
+from PIL import Image, ImageDraw
+
+def process_assets(base_dir):
+    """Process logo badge and curved screenshot."""
+    enhanced_dir = os.path.join(base_dir, "docs", "report_assets", "enhanced")
+    assets_dir = os.path.join(base_dir, "docs", "report_assets")
+    os.makedirs(enhanced_dir, exist_ok=True)
+    os.makedirs(assets_dir, exist_ok=True)
+
+    # 1. Process Institute Logo (uploaded Sawkar Institutes shield)
+    raw_logo_path = r"C:\Users\suraj\.gemini\antigravity\brain\11c5381b-abe0-4590-adb5-713b7965389b\.user_uploaded\media_1795096605584_60c0bef9.png"
+    badge_logo_path = os.path.join(assets_dir, "sawkar_logo_badge.png")
+    if os.path.exists(raw_logo_path):
+        raw = Image.open(raw_logo_path).convert("RGBA")
+        badge = Image.new("RGBA", (220, 220), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(badge)
+        draw.rounded_rectangle([2, 2, 217, 217], radius=24, fill=(255, 255, 255, 255), outline=(226, 232, 240, 255), width=3)
+        resized_raw = raw.resize((190, 190), Image.Resampling.LANCZOS)
+        badge.paste(resized_raw, (15, 15), resized_raw)
+        badge.save(badge_logo_path)
+
+    # 2. Process Slide 9 Screenshot: Apply curved corners matching background frame
+    img4_src = os.path.join(enhanced_dir, "enhanced_4_hospital_inventory.png")
+    img4_curved = os.path.join(enhanced_dir, "enhanced_4_hospital_inventory_curved.png")
+    if os.path.exists(img4_src):
+        src_img = Image.open(img4_src).convert("RGBA")
+        w, h = src_img.size
+        scale = 2
+        mask = Image.new("L", (w * scale, h * scale), 0)
+        draw = ImageDraw.Draw(mask)
+        draw.rounded_rectangle([0, 0, w * scale - 1, h * scale - 1], radius=28 * scale, fill=255)
+        mask = mask.resize((w, h), Image.Resampling.LANCZOS)
+        src_img.putalpha(mask)
+
+        # Subtle curved outline
+        border_img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+        b_draw = ImageDraw.Draw(border_img)
+        b_draw.rounded_rectangle([1, 1, w - 2, h - 2], radius=28, outline=(200, 206, 214, 255), width=2)
+        src_img = Image.alpha_composite(src_img, border_img)
+        src_img.save(img4_curved)
+
+    return badge_logo_path, img4_curved
 
 def build_presentation():
     base_dir = r"c:\BloodNet\BloodNet"
@@ -12,18 +54,26 @@ def build_presentation():
     root_output_pptx = os.path.join(base_dir, "BLOODNET_PROJECT_PRESENTATION.pptx")
     enhanced_dir = os.path.join(base_dir, "docs", "report_assets", "enhanced")
 
+    badge_logo_path, img4_curved_path = process_assets(base_dir)
+
     prs = pptx.Presentation(template_pptx)
     assert len(prs.slides) == 12, f"Expected exactly 12 slides, found {len(prs.slides)}"
 
+    # Color Palette
     PRIMARY_RED = RGBColor(0xDC, 0x26, 0x26)
     DARK_RED    = RGBColor(0x99, 0x1B, 0x1B)
     TEXT_DARK   = RGBColor(0x1E, 0x29, 0x3B)
     TEXT_MUTED  = RGBColor(0x64, 0x74, 0x8B)
+    WHITE       = RGBColor(0xFF, 0xFF, 0xFF)
+    SKY_BLUE    = RGBColor(0x93, 0xC5, 0xFD)
+    LIGHT_SLATE = RGBColor(0xE2, 0xE8, 0xF0)
 
     # =========================================================================
-    # SLIDE 1: Title Slide (with Institute Logo & Academic Metadata)
+    # SLIDE 1: Title Slide (WHITE TEXT FOR HIGH VISIBILITY ON DARK BACKGROUND)
     # =========================================================================
     s1 = prs.slides[0]
+    
+    # Title box (White text, pure high contrast)
     s1_title = s1.shapes[1].text_frame
     s1_title.clear()
     p = s1_title.paragraphs[0]
@@ -31,19 +81,21 @@ def build_presentation():
     p.font.name = "Segoe UI"
     p.font.size = Pt(28)
     p.font.bold = True
-    p.font.color.rgb = PRIMARY_RED
+    p.font.color.rgb = WHITE
+    s1.shapes[1].width = Inches(9.3)
 
+    # Metadata box (White & Sky Blue for clear readability)
     s1_info = s1.shapes[2].text_frame
     s1_info.clear()
+    s1.shapes[2].width = Inches(9.3)
     meta_lines = [
-        ("Presented by:", True, Pt(13), DARK_RED),
-        ("• Mr. Rohit Sharad Sanas (PRN: 2165451242063)       • Mr. Vighnesh N. Suryawanshi (PRN: 2165451242050)", False, Pt(11), TEXT_DARK),
-        ("• Mr. Rohit Ganesh Sanas (PRN: 2165451242056)       • Mr. Manish Rajesh Bodake (PRN: 2165451242057)", False, Pt(11), TEXT_DARK),
-        ("Department:", True, Pt(12), DARK_RED),
-        ("Department of Computer Science and Engineering", False, Pt(11), TEXT_DARK),
-        ("Project Guide: Dr. Samina Y. Mulla", True, Pt(12), PRIMARY_RED),
-        ("Arvind Gavali College of Engineering, Satara  |  Academic Year 2026–27", False, Pt(11), TEXT_MUTED),
-        ("[ Sawkar Institutes Satara ]  |  Affiliated to Dr. BATU, Lonere", True, Pt(11), TEXT_DARK)
+        ("Presented by:", True, Pt(13), SKY_BLUE),
+        ("• Mr. Rohit Sharad Sanas (PRN: 2165451242063)       • Mr. Vighnesh N. Suryawanshi (PRN: 2165451242050)", True, Pt(11), WHITE),
+        ("• Mr. Rohit Ganesh Sanas (PRN: 2165451242056)       • Mr. Manish Rajesh Bodake (PRN: 2165451242057)", True, Pt(11), WHITE),
+        ("Department of Computer Science and Engineering", False, Pt(11), LIGHT_SLATE),
+        ("Project Guide: Dr. Samina Y. Mulla", True, Pt(12), SKY_BLUE),
+        ("Arvind Gavali College of Engineering, Satara  |  Academic Year 2026–27", False, Pt(11), LIGHT_SLATE),
+        ("[ Sawkar Institutes Satara ]  |  Affiliated to Dr. BATU, Lonere", True, Pt(11), WHITE)
     ]
     for idx, (txt, bold, sz, col) in enumerate(meta_lines):
         p = s1_info.add_paragraph() if idx > 0 else s1_info.paragraphs[0]
@@ -54,47 +106,50 @@ def build_presentation():
         p.font.color.rgb = col
         p.space_after = Pt(2)
 
-    logo_path = os.path.join(base_dir, "docs", "report_assets", "sawkar_logo_hd.png")
-    if os.path.exists(logo_path):
-        s1.shapes[4].text_frame.clear()
-        s1.shapes.add_picture(logo_path, Inches(9.8), Inches(1.3), width=Inches(2.5))
+    # Hide template logo placeholder
+    s1.shapes[3].left = Inches(25)
+    s1.shapes[4].left = Inches(25)
+
+    # Place new official Institute Logo badge at top-right
+    if os.path.exists(badge_logo_path):
+        s1.shapes.add_picture(badge_logo_path, Inches(10.5), Inches(1.2), width=Inches(2.0))
 
     # =========================================================================
-    # SLIDE 2: Introduction
+    # SLIDE 2: Introduction (SUMMARIZED, CONCISE BULLETS)
     # =========================================================================
     s2 = prs.slides[1]
     s2_bg = s2.shapes[5].text_frame
     s2_bg.clear()
     bg_points = [
-        "Critical delays in emergency blood procurement lead to thousands of preventable deaths globally each year.",
-        "Conventional blood procurement relies heavily on scattered phone directories, unverified social media broadcasts, and manual hospital visits.",
-        "High donor attrition and lack of transparent communication prolong response times far beyond the critical 'Golden Hour'."
+        ("Critical Golden Hour", "Emergency surgeries & severe hemorrhage require blood in <60 mins; manual procurement takes 4–12 hours."),
+        ("Fragmented Channels", "Heavy reliance on scattered phone registries, physical visits, and unverified social media broadcasts."),
+        ("High Donor Dormancy", "Up to 70% of numbers in static registries are obsolete or unreachable during night-time emergencies.")
     ]
-    for idx, pt in enumerate(bg_points):
+    for idx, (head, body) in enumerate(bg_points):
         p = s2_bg.add_paragraph() if idx > 0 else s2_bg.paragraphs[0]
-        p.text = "• " + pt
+        p.text = f"• {head}: {body}"
         p.font.name = "Segoe UI"
-        p.font.size = Pt(13)
+        p.font.size = Pt(12)
         p.font.color.rgb = TEXT_DARK
-        p.space_after = Pt(10)
+        p.space_after = Pt(8)
 
     s2_ov = s2.shapes[8].text_frame
     s2_ov.clear()
     ov_points = [
-        "BloodNet+ is an intelligent full-stack emergency blood donation and hospital inventory management platform.",
-        "Automates instant proximity-based matching between patients and eligible voluntary donors using the Haversine formula.",
-        "Integrates Socket.IO WebSockets for live status synchronization, turn-by-turn routing, and cryptographically verified donor certification."
+        ("Intelligent Platform", "Full-stack emergency blood network connecting Recipients, Donors, and Hospitals seamlessly."),
+        ("Sub-Second Matching", "Automated Haversine proximity engine locates and alerts the nearest active voluntary donors."),
+        ("Real-Time Telemetry", "Live Socket.IO tracking, turn-by-turn navigation, and cryptographically verified digital certification.")
     ]
-    for idx, pt in enumerate(ov_points):
+    for idx, (head, body) in enumerate(ov_points):
         p = s2_ov.add_paragraph() if idx > 0 else s2_ov.paragraphs[0]
-        p.text = "• " + pt
+        p.text = f"• {head}: {body}"
         p.font.name = "Segoe UI"
-        p.font.size = Pt(13)
+        p.font.size = Pt(12)
         p.font.color.rgb = TEXT_DARK
-        p.space_after = Pt(10)
+        p.space_after = Pt(8)
 
     # =========================================================================
-    # SLIDE 3: Problem Statement (NO PREVIOUS SCREENSHOTS - CLEAN ACADEMIC TEXT)
+    # SLIDE 3: Problem Statement (SUMMARIZED BULLETS - NO PREVIOUS SCREENSHOTS)
     # =========================================================================
     s3 = prs.slides[2]
     s3.shapes[3].left = Inches(0.95)
@@ -104,41 +159,41 @@ def build_presentation():
     s3_body = s3.shapes[3].text_frame
     s3_body.clear()
     prob_points = [
-        "Time-Critical Emergency Gaps: Severe hemorrhage, trauma accidents, and emergency surgeries require blood within 30–60 minutes. Traditional manual search processes often take 4 to 12 hours.",
-        "High Donor Dormancy & Inaccurate Records: Up to 70% of phone numbers in static public registries or social media posts are obsolete, unavailable, or unreachable during night-time emergencies.",
-        "Hospital Information Silos: Blood banks operate on isolated legacy ERP systems without patient-facing visibility into real-time unit availability, causing repeated manual inquiries.",
-        "Real-World Transit & Navigation Delays: Lack of integrated GPS and verified street navigation causes responding donors to lose crucial transit time navigating unfamiliar neighborhoods.",
-        "Absence of Donor Recognition & Retention: Voluntary donors lack transparent, tamper-proof recognition for their contributions, resulting in declining repeat donation frequency."
+        ("Time-Critical Emergency Gaps", "Golden hour delays in trauma & surgeries due to prolonged manual searches."),
+        ("High Donor Dormancy & Inaccuracy", "Static public lists contain obsolete numbers, causing devastating response failure."),
+        ("Hospital Inventory Information Silos", "Isolated hospital blood banks lack patient-facing real-time stock visibility."),
+        ("Real-World Transit & Route Failures", "Raw GPS coordinates lead to alleyway dead-ends instead of verified street addresses."),
+        ("Absence of Donor Recognition", "Voluntary donors lack tamper-proof digital credentials, lowering return donation frequency.")
     ]
-    for idx, pt in enumerate(prob_points):
+    for idx, (head, body) in enumerate(prob_points):
         p = s3_body.add_paragraph() if idx > 0 else s3_body.paragraphs[0]
-        p.text = "• " + pt
+        p.text = f"• {head}: {body}"
         p.font.name = "Segoe UI"
-        p.font.size = Pt(13)
+        p.font.size = Pt(12.5)
         p.font.color.rgb = TEXT_DARK
-        p.space_after = Pt(8)
+        p.space_after = Pt(6)
 
     # Bottom Stat Card
     s3_stat = s3.shapes[5].text_frame
     s3_stat.clear()
     p = s3_stat.paragraphs[0]
-    p.text = "📊 Healthcare Fact: India faces an annual deficit of >1.5M blood units; 62% of families report acute distress locating donors during night emergencies."
+    p.text = "📊 Healthcare Fact: India faces an annual deficit of >1.5M units; 62% of families report acute distress locating donors during night emergencies."
     p.font.name = "Segoe UI"
-    p.font.size = Pt(12)
+    p.font.size = Pt(11.5)
     p.font.bold = True
     p.font.color.rgb = DARK_RED
 
     # =========================================================================
-    # SLIDE 4: Objectives
+    # SLIDE 4: Objectives (SUMMARIZED NUMBERED GOALS)
     # =========================================================================
     s4 = prs.slides[3]
     obj_texts = [
-        "1. Full-Stack Web Platform Development:\nDesign a secure, responsive MERN-based web platform with dedicated portals for Recipients, Donors, Hospitals, and Admins.",
-        "2. Automated Geospatial Matching:\nImplement the Haversine formula and OpenStreetMap geocoding to compute donor proximity within sub-second precision.",
-        "3. Real-Time Tracking & Direction Support:\nIntegrate Socket.IO WebSockets and address-based Google Maps routing for real-time donor-to-patient transit coordination.",
-        "4. Hospital Blood Inventory Management:\nAutomate real-time inventory adjustments (A+, B+, AB+, O+) with instant blood reservation and critical depletion warnings.",
-        "5. Cryptographic Certification & Recognition:\nGenerate tamper-proof, QR-verifiable digital certificates to recognize voluntary donors and foster continuous community retention.",
-        "6. Empirical Performance Benchmarking:\nEvaluate system latency (<180ms), matching accuracy (>99%), and dispatch speed (<1.2s) under simulated multi-client workloads."
+        "1. Full-Stack Web Platform:\nDesign secure, responsive MERN portals for Recipients, Donors, Hospitals, and Admins.",
+        "2. Automated Geospatial Matching:\nImplement sub-second Haversine proximity calculations and OpenStreetMap geocoding.",
+        "3. Live Transit Coordination:\nIntegrate Socket.IO WebSockets and address-first Google Maps turn-by-turn route navigation.",
+        "4. Hospital Inventory Hub:\nAutomate real-time 8-group stock adjustments (A+, B+, AB+, O+) with instant depletion alerts.",
+        "5. Cryptographic Certification:\nGenerate SHA-256 scannable QR certificates to incentivize continuous voluntary community donors.",
+        "6. Empirical Performance Benchmarking:\nValidate system latency (<180ms), matching accuracy (>99%), and dispatch speed (<1.2s)."
     ]
     for idx, txt in enumerate(obj_texts):
         shape_idx = 4 + idx * 2
@@ -151,19 +206,19 @@ def build_presentation():
         p.font.color.rgb = TEXT_DARK
 
     # =========================================================================
-    # SLIDE 5: Literature Survey & Research Gap
+    # SLIDE 5: Literature Survey & Research Gap (SUMMARIZED MATRIX)
     # =========================================================================
     s5 = prs.slides[4]
     table_mappings = [
         (10, "e-RaktKosh (Govt. Portal)"),
         (12, "Centralized Database Tracking"),
-        (14, "Static inventory; no live donor tracking or active donor push dispatch."),
+        (14, "Static inventory; no active donor push dispatch."),
         (16, "Social Media Groups (WhatsApp/FB)"),
         (18, "Crowdsourced Broadcasts"),
-        (20, "High misinformation rate; no medical compatibility or privacy controls."),
+        (20, "High misinformation rate; zero privacy or medical verification."),
         (22, "Commercial Hospital ERPs"),
         (24, "Local Relational DBMS (SQL)"),
-        (26, "Proprietary silos; zero public donor coordination or mobile mapping.")
+        (26, "Proprietary silos; no public donor coordination or live mapping.")
     ]
     for shp_idx, txt in table_mappings:
         tf = s5.shapes[shp_idx].text_frame
@@ -177,9 +232,9 @@ def build_presentation():
     s5_rg = s5.shapes[29].text_frame
     s5_rg.clear()
     rg_points = [
-        "Absence of Integrated Real-Time Dispatch: Existing portals only list phone numbers without active push notifications or availability confirmation.",
-        "Lack of Turn-by-Turn Navigation: No current solution connects the recipient's emergency hospital destination directly to the donor's transit route.",
-        "No Tamper-Proof Donor Recognition: Lack of instant digital credentials limits long-term voluntary donor engagement."
+        "Absence of Real-Time Push Dispatch: Existing systems require manual calling; no instant WebSocket alerts.",
+        "Missing Transit Guidance: No platform links recipient destination directly to donor turn-by-turn routing.",
+        "Zero Verifiable Recognition: Lack of tamper-proof credentials lowers voluntary donor return retention."
     ]
     for idx, pt in enumerate(rg_points):
         p = s5_rg.add_paragraph() if idx > 0 else s5_rg.paragraphs[0]
@@ -190,7 +245,7 @@ def build_presentation():
         p.space_after = Pt(2)
 
     # =========================================================================
-    # SLIDE 6: Proposed System (WITH CURRENT IMAGES 1 & 2)
+    # SLIDE 6: Proposed System (WITH CURRENT IMAGES 1 & 2 - SUMMARIZED)
     # =========================================================================
     s6 = prs.slides[5]
     s6.shapes[3].left = Inches(0.65)
@@ -200,30 +255,29 @@ def build_presentation():
     s6_body = s6.shapes[3].text_frame
     s6_body.clear()
     prop_points = [
-        "Patient-Centric Request Creation: Recipients submit emergency blood requests with blood group, units, hospital, and address geocoding in under 30 seconds.",
-        "Intelligent Proximity Matching: Haversine distance engine calculates straight-line and route distance to all active, compatible voluntary donors.",
-        "Instant WebSocket Broadcast: Dispatches real-time emergency pings to nearby registered donors (< 180 ms latency).",
-        "Mutual Coordination & Tracking: When a donor accepts, contact details and address-first Google Maps navigation activate seamlessly.",
-        "Hospital Inventory Interlock: Atomic transactions reserve hospital blood units, preventing double-allocation."
+        ("1. Emergency Request Initiation", "Recipient submits blood group, units & hospital location in <30 seconds."),
+        ("2. Proximity Matching Engine", "Haversine algorithm filters active voluntary donors within target radius."),
+        ("3. Instant Push Dispatch", "WebSocket broadcast alerts eligible donors with sub-second sync (<180 ms)."),
+        ("4. Real-Time Transit Tracking", "Direct contact & address-first Google Maps navigation activate on donor acceptance."),
+        ("5. Atomic Inventory Interlock", "Hospital stock reservation and digital verification prevent double-booking.")
     ]
-    for idx, pt in enumerate(prop_points):
+    for idx, (head, body) in enumerate(prop_points):
         p = s6_body.add_paragraph() if idx > 0 else s6_body.paragraphs[0]
-        p.text = "• " + pt
+        p.text = f"• {head}:\n  {body}"
         p.font.name = "Segoe UI"
-        p.font.size = Pt(11.5)
+        p.font.size = Pt(11)
         p.font.color.rgb = TEXT_DARK
-        p.space_after = Pt(6)
+        p.space_after = Pt(4)
 
-    # Hide template small arrow boxes on the right to make room for images
     for shp_i in range(4, 18):
         s6.shapes[shp_i].left = Inches(25)
 
-    # Label 1 (Above Image 1)
+    # Image 1 Label & Picture
     lbl1 = s6.shapes.add_textbox(Inches(6.60), Inches(1.25), Inches(5.80), Inches(0.28))
     p = lbl1.text_frame.paragraphs[0]
     p.text = "Image 1: Emergency Blood Request Creation Modal (Recipient)"
     p.font.name = "Segoe UI"
-    p.font.size = Pt(10.5)
+    p.font.size = Pt(10)
     p.font.bold = True
     p.font.color.rgb = PRIMARY_RED
 
@@ -231,12 +285,12 @@ def build_presentation():
     if os.path.exists(img1_path):
         s6.shapes.add_picture(img1_path, Inches(6.60), Inches(1.55), width=Inches(5.80))
 
-    # Label 2 (Above Image 2)
+    # Image 2 Label & Picture
     lbl2 = s6.shapes.add_textbox(Inches(6.60), Inches(4.35), Inches(5.80), Inches(0.28))
     p = lbl2.text_frame.paragraphs[0]
     p.text = "Image 2: Live Emergency Request Queue & Distance Calculation (Donor)"
     p.font.name = "Segoe UI"
-    p.font.size = Pt(10.5)
+    p.font.size = Pt(10)
     p.font.bold = True
     p.font.color.rgb = PRIMARY_RED
 
@@ -256,16 +310,12 @@ def build_presentation():
         "Live Maps\nNavigation",
         "Certificate &\nAudit DB"
     ]
-    # Move all 6 cards and arrows to top row (top=1.15)
     for i in range(6):
-        card_idx = 3 + i * 3
-        text_idx = 4 + i * 3
-        # Card
-        card = s7.shapes[card_idx]
+        card = s7.shapes[3 + i * 3]
         card.top = Inches(1.15)
         card.height = Inches(0.85)
-        # Text
-        tf = s7.shapes[text_idx].text_frame
+
+        tf = s7.shapes[4 + i * 3].text_frame
         tf.clear()
         p = tf.paragraphs[0]
         p.text = arch_steps_data[i]
@@ -273,23 +323,21 @@ def build_presentation():
         p.font.size = Pt(9.5)
         p.font.bold = True
         p.font.color.rgb = TEXT_DARK
-        s7.shapes[text_idx].top = Inches(1.22)
-        s7.shapes[text_idx].height = Inches(0.70)
-        # Arrow (except last)
-        if i < 5:
-            arrow = s7.shapes[5 + i * 3]
-            arrow.top = Inches(1.40)
+        s7.shapes[4 + i * 3].top = Inches(1.22)
+        s7.shapes[4 + i * 3].height = Inches(0.70)
 
-    # Hide placeholder box 20 & 21
+        if i < 5:
+            s7.shapes[5 + i * 3].top = Inches(1.40)
+
     s7.shapes[20].left = Inches(25)
     s7.shapes[21].left = Inches(25)
 
-    # Label 3A (Above Image 3A)
+    # Image 3A Label, Picture & Caption
     lbl3a = s7.shapes.add_textbox(Inches(0.65), Inches(2.20), Inches(5.75), Inches(0.28))
     p = lbl3a.text_frame.paragraphs[0]
     p.text = "Image 3A: Responding Donors & Selected Match Telemetry"
     p.font.name = "Segoe UI"
-    p.font.size = Pt(10.5)
+    p.font.size = Pt(10)
     p.font.bold = True
     p.font.color.rgb = PRIMARY_RED
 
@@ -299,17 +347,17 @@ def build_presentation():
 
     cap3a = s7.shapes.add_textbox(Inches(0.65), Inches(6.05), Inches(5.75), Inches(0.80))
     p = cap3a.text_frame.paragraphs[0]
-    p.text = "• Shows active donor coordination (john doe AB+) with address tracking and mutual consent."
+    p.text = "• Shows active donor coordination (john doe AB+) with live tracking & mutual consent."
     p.font.name = "Segoe UI"
     p.font.size = Pt(9.5)
     p.font.color.rgb = TEXT_MUTED
 
-    # Label 3B (Above Image 3B)
+    # Image 3B Label, Picture & Caption
     lbl3b = s7.shapes.add_textbox(Inches(6.65), Inches(2.20), Inches(6.00), Inches(0.28))
     p = lbl3b.text_frame.paragraphs[0]
     p.text = "Image 3B: Address-First Google Maps Turn-by-Turn Route Navigation"
     p.font.name = "Segoe UI"
-    p.font.size = Pt(10.5)
+    p.font.size = Pt(10)
     p.font.bold = True
     p.font.color.rgb = PRIMARY_RED
 
@@ -321,12 +369,12 @@ def build_presentation():
     tf3b = cap3b.text_frame
     tf3b.clear()
     p = tf3b.paragraphs[0]
-    p.text = "• Resolves alleyway coordinate dead-ends ('cannot calculate directions') by routing to verified street addresses."
+    p.text = "• Eliminates alleyway coordinate dead-ends by routing to verified street addresses."
     p.font.name = "Segoe UI"
     p.font.size = Pt(9.5)
     p.font.color.rgb = TEXT_MUTED
     p2 = tf3b.add_paragraph()
-    p2.text = "• Live transit route calculated: 216 km / 4h 14m via Mumbai-Satara Hwy with real-time traffic telemetry."
+    p2.text = "• Live transit telemetry calculated: 216 km / 4h 14m via Mumbai-Satara Hwy with traffic updates."
     p2.font.name = "Segoe UI"
     p2.font.size = Pt(9.5)
     p2.font.color.rgb = TEXT_MUTED
@@ -342,18 +390,15 @@ def build_presentation():
     s8_fe.clear()
     fe_tech = [
         "Frontend Architecture:",
-        "  • React 18 SPA with concurrent rendering",
-        "  • Tailwind CSS 3: Responsive clinical UI & badges",
-        "  • Vite: Fast HMR build pipeline & dynamic imports",
-        "Backend & Microservices:",
-        "  • Node.js & Express.js RESTful API architecture",
-        "  • Socket.IO: Room-based real-time event dispatcher",
+        "  • React 18 SPA with concurrent rendering & Tailwind CSS 3",
+        "Backend & Real-Time Engine:",
+        "  • Node.js & Express.js REST API",
+        "  • Socket.IO: Room-based real-time event dispatcher (<180ms)",
         "Database & Geocoding:",
-        "  • MongoDB Atlas: Scalable document schemas & indexes",
-        "  • OpenStreetMap Nominatim: Reverse street geocoding",
-        "Deployment & DevOps:",
-        "  • Render Cloud: Web service container hosting",
-        "  • GitHub CI/CD: Automated deployment workflow"
+        "  • MongoDB Atlas: Scalable schemas with atomic transactions",
+        "  • OpenStreetMap Nominatim & Haversine proximity engine",
+        "DevOps & Cloud Hosting:",
+        "  • Render Cloud Web Service with automated GitHub CI/CD"
     ]
     for idx, pt in enumerate(fe_tech):
         p = s8_fe.add_paragraph() if idx > 0 else s8_fe.paragraphs[0]
@@ -364,17 +409,15 @@ def build_presentation():
         p.font.color.rgb = PRIMARY_RED if pt.endswith(":") else TEXT_DARK
         p.space_after = Pt(2)
 
-    # Hide template shape 6, 7, 8
     s8.shapes[6].left = Inches(25)
     s8.shapes[7].left = Inches(25)
     s8.shapes[8].left = Inches(25)
 
-    # Label 6 (Above Image 6)
     lbl6 = s8.shapes.add_textbox(Inches(6.55), Inches(1.25), Inches(6.15), Inches(0.28))
     p = lbl6.text_frame.paragraphs[0]
-    p.text = "Image 6: Implementation - Voluntary Donor Dashboard & Health Profile"
+    p.text = "Image 6: Voluntary Donor Dashboard & Health Profile Implementation"
     p.font.name = "Segoe UI"
-    p.font.size = Pt(10.5)
+    p.font.size = Pt(10)
     p.font.bold = True
     p.font.color.rgb = PRIMARY_RED
 
@@ -386,31 +429,31 @@ def build_presentation():
     tf6 = cap6.text_frame
     tf6.clear()
     p = tf6.paragraphs[0]
-    p.text = "• Features one-click avatar management with client-side compression & persistent storage."
+    p.text = "• Instant avatar upload with client-side compression & persistent storage."
     p.font.name = "Segoe UI"
     p.font.size = Pt(9.5)
     p.font.color.rgb = TEXT_MUTED
     p2 = tf6.add_paragraph()
-    p2.text = "• Displays live availability toggle, verified health metrics (AB+, 57kg, 15.8 g/dL), and geocoded residential address."
+    p2.text = "• Real-time availability toggle, verified health metrics (AB+, 57kg, 15.8 g/dL), and geocoded residential address."
     p2.font.name = "Segoe UI"
     p2.font.size = Pt(9.5)
     p2.font.color.rgb = TEXT_MUTED
 
     # =========================================================================
-    # SLIDE 9: Results & Performance (WITH CURRENT IMAGE 4 & BENCHMARK METRICS)
+    # SLIDE 9: Results & Performance (CURVED CORNER SCREENSHOT FIX!)
     # =========================================================================
     s9 = prs.slides[8]
     s9.shapes[4].text_frame.clear()
     s9.shapes[3].height = Inches(5.35)
 
-    img4_path = os.path.join(enhanced_dir, "enhanced_4_hospital_inventory.png")
-    if os.path.exists(img4_path):
-        s9.shapes.add_picture(img4_path, Inches(0.85), Inches(1.45), width=Inches(7.05))
+    # Place CURVED screenshot matching the curved background frame!
+    if os.path.exists(img4_curved_path):
+        s9.shapes.add_picture(img4_curved_path, Inches(0.85), Inches(1.45), width=Inches(7.05))
 
     metrics = [
         (6, "Matching Accuracy", 7, "99.4%"),
         (9, "Sync Latency", 10, "< 180 ms"),
-        (12, "Dispatch Time", 13, "< 1.2 s"),
+        (12, "Dispatch Speed", 13, "< 1.2 s"),
         (15, "Platform Uptime", 16, "99.9%")
     ]
     for title_idx, title_txt, val_idx, val_txt in metrics:
@@ -419,7 +462,7 @@ def build_presentation():
         p = tf_t.paragraphs[0]
         p.text = title_txt
         p.font.name = "Segoe UI"
-        p.font.size = Pt(14)
+        p.font.size = Pt(13)
         p.font.bold = True
         p.font.color.rgb = TEXT_DARK
 
@@ -428,7 +471,7 @@ def build_presentation():
         p = tf_v.paragraphs[0]
         p.text = val_txt
         p.font.name = "Segoe UI"
-        p.font.size = Pt(18)
+        p.font.size = Pt(17)
         p.font.bold = True
         p.font.color.rgb = PRIMARY_RED
 
@@ -437,97 +480,97 @@ def build_presentation():
     p = s9_note.paragraphs[0]
     p.text = "Image 4: Hospital Blood Bank Management Hub showing real-time 8-group stock matrix, critical stock alerts, and atomic inventory updates."
     p.font.name = "Segoe UI"
-    p.font.size = Pt(10)
+    p.font.size = Pt(9.5)
     p.font.color.rgb = TEXT_DARK
 
     # =========================================================================
-    # SLIDE 10: Applications, Advantages & Limitations
+    # SLIDE 10: Applications, Advantages & Limitations (SUMMARIZED)
     # =========================================================================
     s10 = prs.slides[9]
     s10_app = s10.shapes[5].text_frame
     s10_app.clear()
     app_pts = [
-        "Emergency Trauma & Intensive Care Units in hospitals",
-        "Regional blood bank inventory monitoring & coordination",
-        "Disaster management & mass-casualty response networks",
-        "Rural & semi-urban primary healthcare donor mobilization"
+        "Emergency ICUs & trauma surgical units",
+        "Regional blood bank inventory networks",
+        "Disaster relief & mass casualty response",
+        "Rural & semi-urban health clinics"
     ]
     for idx, pt in enumerate(app_pts):
         p = s10_app.add_paragraph() if idx > 0 else s10_app.paragraphs[0]
         p.text = "• " + pt
         p.font.name = "Segoe UI"
-        p.font.size = Pt(12)
+        p.font.size = Pt(11.5)
         p.font.color.rgb = TEXT_DARK
-        p.space_after = Pt(8)
+        p.space_after = Pt(6)
 
     s10_adv = s10.shapes[8].text_frame
     s10_adv.clear()
     adv_pts = [
-        "Sub-second dispatch minimizes critical search time",
-        "Eliminates duplicate phone calls & unverified social posts",
-        "Turn-by-turn routing directly to verified street addresses",
-        "Cryptographically verifiable certification boosts donor retention",
-        "Atomic database transactions prevent inventory double-booking"
+        "Sub-second dispatch minimizes golden hour delays",
+        "Eliminates obsolete phone calls & unverified posts",
+        "Address-first Google Maps navigation prevents dead-ends",
+        "Cryptographically verifiable QR certificates boost retention",
+        "Atomic transactions eliminate inventory double-booking"
     ]
     for idx, pt in enumerate(adv_pts):
         p = s10_adv.add_paragraph() if idx > 0 else s10_adv.paragraphs[0]
         p.text = "• " + pt
         p.font.name = "Segoe UI"
-        p.font.size = Pt(12)
+        p.font.size = Pt(11.5)
         p.font.color.rgb = TEXT_DARK
-        p.space_after = Pt(6)
+        p.space_after = Pt(5)
 
     s10_lim = s10.shapes[11].text_frame
     s10_lim.clear()
     lim_pts = [
-        "Active Internet Connectivity: Requires WebSockets connection",
-        "Voluntary Availability: Depends on registered donor engagement",
-        "Geocoding Resolution: Subject to regional map precision"
+        "Active Internet Connectivity: Requires WebSockets",
+        "Voluntary Availability: Depends on registered donor density",
+        "Geocoding Coverage: Dependent on regional map resolution"
     ]
     for idx, pt in enumerate(lim_pts):
         p = s10_lim.add_paragraph() if idx > 0 else s10_lim.paragraphs[0]
         p.text = "• " + pt
         p.font.name = "Segoe UI"
-        p.font.size = Pt(12)
+        p.font.size = Pt(11.5)
         p.font.color.rgb = TEXT_DARK
-        p.space_after = Pt(8)
+        p.space_after = Pt(6)
 
     # =========================================================================
-    # SLIDE 11: Future Scope & Conclusion
+    # SLIDE 11: Future Scope & Conclusion (SUMMARIZED)
     # =========================================================================
     s11 = prs.slides[10]
     s11_fut = s11.shapes[5].text_frame
     s11_fut.clear()
     fut_pts = [
-        "AI Predictive Demand Forecasting: Machine learning models predicting regional blood shortages based on weather, seasonal Dengue, and festivals.",
-        "IoT Smart Cold-Chain Monitoring: Temperature sensors tracking blood transport boxes during courier transit.",
-        "Cross-State Blood Bank Registry Sync: Standardized API inter-operability across national health portals (e-RaktKosh).",
-        "Dedicated Mobile Native Applications: React Native apps supporting background Bluetooth beacons and offline emergency SMS failover."
+        "AI Demand Forecasting: ML models predicting seasonal shortages (e.g. Dengue, festivals).",
+        "IoT Smart Cold-Chain: Temperature sensors tracking blood units during transit courier.",
+        "National Portal Inter-Op: Standardized API sync with national e-RaktKosh registry.",
+        "Mobile Native Applications: React Native iOS/Android apps with offline SMS fallback."
     ]
     for idx, pt in enumerate(fut_pts):
         p = s11_fut.add_paragraph() if idx > 0 else s11_fut.paragraphs[0]
         p.text = "• " + pt
         p.font.name = "Segoe UI"
-        p.font.size = Pt(12)
+        p.font.size = Pt(11.5)
         p.font.color.rgb = TEXT_DARK
-        p.space_after = Pt(8)
+        p.space_after = Pt(6)
 
     s11_con = s11.shapes[8].text_frame
     s11_con.clear()
     con_pts = [
-        "Successfully developed and deployed BloodNet+ as a comprehensive, real-time emergency blood donation platform.",
-        "Replaced fragmented manual search calls with automated sub-second proximity matching (<180ms latency).",
-        "Implemented address-first navigation, preventing coordinate dead-ends during critical emergency transit.",
-        "Delivered a tamper-proof digital certification system with verifiable QR verification to incentivize voluntary community donors.",
-        "Full-stack architecture verified live on Render cloud with robust database integrity and sub-second dispatch performance."
+        "Successfully developed and deployed BloodNet+ real-time emergency blood network.",
+        "Replaced manual calling with automated sub-second proximity dispatch (<180ms sync).",
+        "Integrated address-first turn-by-turn routing, eliminating alleyway transit dead-ends.",
+        "Delivered a tamper-proof digital certification system with verifiable QR verification.",
+        "Empirically validated live on Render cloud with 99.4% matching accuracy and 99.9% uptime."
     ]
     for idx, pt in enumerate(con_pts):
         p = s11_con.add_paragraph() if idx > 0 else s11_con.paragraphs[0]
         p.text = "• " + pt
         p.font.name = "Segoe UI"
-        p.font.size = Pt(12)
+        p.font.size = Pt(11.5)
         p.font.color.rgb = TEXT_DARK
-        p.space_after = Pt(6)
+        p.space_after = Pt(5)
 
     # =========================================================================
     # SLIDE 12: References & Q&A (WITH CURRENT IMAGE 5 - CERTIFICATE & QR)
@@ -541,21 +584,20 @@ def build_presentation():
     s12_ref = s12.shapes[5].text_frame
     s12_ref.clear()
     ref_pts = [
-        "1. American Association of Blood Banks (AABB), Standards for Blood Banks and Transfusion Services, 32nd Edition.",
+        "1. American Association of Blood Banks (AABB), Standards for Blood Banks and Transfusion Services, 32nd Ed.",
         "2. Fette, I. and Melnikov, A., 'The WebSocket Protocol', IETF RFC 6455, Dec 2011.",
-        "3. Sinnott, R. W., 'Virtues of the Haversine', Sky and Telescope, vol. 68, no. 2, p. 159, 1984.",
-        "4. Haklay, M. and Weber, P., 'OpenStreetMap: User-Generated Street Maps', IEEE Pervasive Computing, 2008.",
-        "5. Banks, A. and Gupta, R., 'MQTT Version 3.1.1', OASIS Standard, 2014."
+        "3. Sinnott, R. W., 'Virtues of the Haversine', Sky and Telescope, vol. 68, no. 2, 1984.",
+        "4. Haklay, M. and Weber, P., 'OpenStreetMap: User-Generated Street Maps', IEEE Pervasive Computing, 2008."
     ]
     for idx, pt in enumerate(ref_pts):
         p = s12_ref.add_paragraph() if idx > 0 else s12_ref.paragraphs[0]
         p.text = pt
         p.font.name = "Segoe UI"
-        p.font.size = Pt(11)
+        p.font.size = Pt(10.5)
         p.font.color.rgb = TEXT_DARK
-        p.space_after = Pt(8)
+        p.space_after = Pt(6)
 
-    # Thank You / Q&A Header Card
+    # Thank You / Q&A Card
     s12.shapes[6].left = Inches(6.55)
     s12.shapes[6].top = Inches(1.25)
     s12.shapes[6].width = Inches(6.15)
@@ -576,16 +618,14 @@ def build_presentation():
     p2.font.bold = True
     p2.font.color.rgb = DARK_RED
 
-    # Hide template shape 8 & 9
     s12.shapes[8].left = Inches(25)
     s12.shapes[9].left = Inches(25)
 
-    # Label 5 (Above Image 5)
     lbl5 = s12.shapes.add_textbox(Inches(6.65), Inches(2.75), Inches(5.95), Inches(0.28))
     p = lbl5.text_frame.paragraphs[0]
     p.text = "Image 5: Official Certificate with Scannable SHA-256 QR Verification"
     p.font.name = "Segoe UI"
-    p.font.size = Pt(10.5)
+    p.font.size = Pt(10)
     p.font.bold = True
     p.font.color.rgb = PRIMARY_RED
 
@@ -609,7 +649,7 @@ def build_presentation():
     # Save to docs and root
     prs.save(output_pptx)
     prs.save(root_output_pptx)
-    print("SUCCESS: 12-Slide Master Presentation Generated!")
+    print("SUCCESS: 12-Slide Master Presentation with White Text on Slide 1 and Curved Frame Screenshot Generated!")
     print(f"  Docs: {output_pptx}")
     print(f"  Root: {root_output_pptx}")
 
