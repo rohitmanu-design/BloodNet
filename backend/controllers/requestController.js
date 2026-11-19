@@ -302,9 +302,21 @@ const getNearbyRequests = async (req, res) => {
           ) * 10) / 10;
         }
 
+        const myResponse = plain.responses?.find(r => r.responderId?.toString() === req.user.id.toString());
+        const hasAccepted = myResponse?.responseStatus === 'accepted' ||
+          myResponse?.responseStatus === 'selected' ||
+          plain.donorId?.toString() === req.user.id.toString() ||
+          plain.selectedResponderId?.toString() === req.user.id.toString();
+        const isFulfillmentSelected = plain.selectedResponderId?.toString() === req.user.id.toString();
+        const isClosedForMe = plain.fulfillmentChosen && !isFulfillmentSelected;
+
         return {
           ...plain,
           approxDistanceKm: distance,
+          myResponseStatus: myResponse?.responseStatus || (hasAccepted ? 'accepted' : null),
+          hasAccepted: Boolean(hasAccepted),
+          isFulfillmentSelected: Boolean(isFulfillmentSelected),
+          isClosedForMe: Boolean(isClosedForMe),
           location: {
             address: plain.location?.address || 'Location provided upon request',
             lat: plain.location?.lat || 0,

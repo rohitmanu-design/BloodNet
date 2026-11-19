@@ -271,7 +271,18 @@ const RevolutionaryDonorDashboard = () => {
       setActiveDonation(newActive);
       localStorage.setItem('bloodnet_active_donation', JSON.stringify(newActive));
 
-      setNearbyRequests(prev => prev.filter(req => req._id !== pendingAcceptRequest._id));
+      // Mark the accepted request in state immediately so the button updates in real time
+      setNearbyRequests(prev => prev.map(req => {
+        if (req._id === pendingAcceptRequest._id) {
+          return {
+            ...req,
+            hasAccepted: true,
+            myResponseStatus: 'accepted'
+          };
+        }
+        return req;
+      }));
+
       socket?.emit('joinTrackingRoom', { requestId: pendingAcceptRequest._id, userId: user?._id || user?.id });
       notify('✅ Blood request accepted! You are now connected with the recipient.', 'success');
 
@@ -297,6 +308,44 @@ const RevolutionaryDonorDashboard = () => {
     } finally {
       setAcceptingInProgress(false);
     }
+  };
+
+  const setActiveDonationFromRequest = (request) => {
+    const newActive = {
+      _id: request._id,
+      bloodGroup: request.bloodGroup,
+      unitsNeeded: request.unitsNeeded,
+      recipientName: request.recipientName || 'Recipient',
+      location: request.location,
+      shareLocation: true,
+      donorTrackingStatus: 'active'
+    };
+    setActiveDonation(newActive);
+    localStorage.setItem('bloodnet_active_donation', JSON.stringify(newActive));
+    setActiveSection('active');
+  };
+
+  const isRequestAcceptedByMe = (req) => {
+    if (!req) return false;
+    const userId = user?._id || user?.id;
+    if (activeDonation?._id?.toString() === req._id?.toString()) return true;
+    if (req.hasAccepted || req.myResponseStatus === 'accepted' || req.myResponseStatus === 'selected') return true;
+    if (userId && req.donorId?.toString() === userId.toString()) return true;
+    if (userId && req.selectedResponderId?.toString() === userId.toString()) return true;
+    if (userId && req.responses?.some(r => r.responderId?.toString() === userId.toString() && ['accepted', 'selected'].includes(r.responseStatus))) return true;
+    return false;
+  };
+
+  const isRequestFulfillmentChosenForMe = (req) => {
+    if (!req) return false;
+    const userId = user?._id || user?.id;
+    return Boolean(req.isFulfillmentSelected || (userId && req.selectedResponderId?.toString() === userId.toString()));
+  };
+
+  const isRequestClosedForMe = (req) => {
+    if (!req) return false;
+    const userId = user?._id || user?.id;
+    return Boolean(req.isClosedForMe || (req.fulfillmentChosen && userId && req.selectedResponderId?.toString() !== userId.toString()));
   };
 
   // 2. Synchronize tracking stream and socket room whenever activeDonation is present
@@ -835,12 +884,17 @@ const RevolutionaryDonorDashboard = () => {
                     {filteredRequests.map((request) => {
                       const isEmergency = request.urgency === 'critical' || request.urgency === 'emergency';
                       const directionsUrl = buildDirectionsUrl(request.location?.lat, request.location?.lng, request.location?.address);
+                      const acceptedByMe = isRequestAcceptedByMe(request);
+                      const chosenForMe = isRequestFulfillmentChosenForMe(request);
+                      const closedForMe = isRequestClosedForMe(request);
 
                       return (
                         <div
                           key={request._id}
                           className={`p-6 rounded-2xl border transition-all ${
-                            isEmergency
+                            acceptedByMe
+                              ? 'bg-emerald-50/40 border-emerald-300 shadow-xs ring-1 ring-emerald-300/50'
+                              : isEmergency
                               ? 'bg-red-50/30 border-red-200 shadow-xs'
                               : 'bg-white border-gray-200 hover:border-gray-300'
                           }`}
@@ -863,6 +917,12 @@ const RevolutionaryDonorDashboard = () => {
                                 }`}>
                                   {isEmergency ? '🚨 CRITICAL EMERGENCY' : (request.urgency || 'normal').toUpperCase()}
                                 </span>
+                                {acceptedByMe && (
+                                  <span className="px-2.5 py-1 rounded-lg text-xs font-extrabold bg-emerald-100 text-emerald-800 flex items-center gap-1">
+                                    <CheckCircleIcon className="w-3.5 h-3.5 text-emerald-600" />
+                                    {chosenForMe ? 'MATCH SELECTED' : 'ACCEPTED BY YOU'}
+                                  </span>
+                                )}
                                 {request.approxDistanceKm !== null && request.approxDistanceKm !== undefined && (
                                   <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-blue-50 text-blue-700">
                                     📍 ~{request.approxDistanceKm} km away
@@ -888,6 +948,25 @@ const RevolutionaryDonorDashboard = () => {
                                   </p>
                                 )}
                               </div>
+
+                              {acceptedByMe && (
+                                <div className="mt-3 p-3 bg-emerald-50 border border-emerald-300 rounded-xl flex items-center justify-between text-xs text-emerald-950 shadow-xs">
+                                  <div className="flex items-center gap-2">
+                                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-600 animate-ping"></span>
+                                    <span className="font-bold">
+                                      {chosenForMe
+                                        ? '🎉 The recipient selected your match! Live coordination is locked in.'
+                                        : 'You accepted this blood request! Live GPS coordination is active.'}
+                                    </span>
+                                  </div>
+                                  <button
+                                    onClick={() => setActiveDonationFromRequest(request)}
+                                    className="text-emerald-700 hover:text-emerald-900 font-extrabold underline shrink-0 ml-2"
+                                  >
+                                    Open Live Tracking Map →
+                                  </button>
+                                </div>
+                              )}
                             </div>
 
                             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 shrink-0">
@@ -911,13 +990,35 @@ const RevolutionaryDonorDashboard = () => {
                                 <span>Refer / Share</span>
                               </button>
 
-                              <button
-                                onClick={() => initiateAcceptRequest(request)}
-                                className="px-6 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs shadow-xs flex items-center justify-center gap-1.5 transition-all"
-                              >
-                                <HeartSolidIcon className="w-4 h-4" />
-                                <span>Accept & Donate</span>
-                              </button>
+                              {closedForMe ? (
+                                <span className="px-5 py-2.5 rounded-xl bg-gray-100 text-gray-400 font-bold text-xs flex items-center justify-center gap-1.5 cursor-not-allowed">
+                                  <span>Option Closed</span>
+                                </span>
+                              ) : chosenForMe ? (
+                                <button
+                                  onClick={() => setActiveDonationFromRequest(request)}
+                                  className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs flex items-center justify-center gap-1.5 transition-all"
+                                >
+                                  <CheckCircleIcon className="w-4 h-4" />
+                                  <span>Match Selected! Track Live</span>
+                                </button>
+                              ) : acceptedByMe ? (
+                                <button
+                                  onClick={() => setActiveDonationFromRequest(request)}
+                                  className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs flex items-center justify-center gap-1.5 transition-all"
+                                >
+                                  <span className="w-2 h-2 rounded-full bg-white animate-pulse"></span>
+                                  <span>Accepted • View Live Tracking</span>
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => initiateAcceptRequest(request)}
+                                  className="px-6 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs shadow-xs flex items-center justify-center gap-1.5 transition-all"
+                                >
+                                  <HeartSolidIcon className="w-4 h-4" />
+                                  <span>Accept & Donate</span>
+                                </button>
+                              )}
                             </div>
                           </div>
                         </div>
